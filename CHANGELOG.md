@@ -4,10 +4,48 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.0.0)
-- Additional writers: NAT, DHCP, Unbound, WireGuard peers (same pattern as Aliases/Rules).
+### Planned (v1.1+)
+- Additional writers: NAT, DHCP static mappings, Unbound host/domain overrides, WireGuard peers (same pattern as Aliases/Rules).
 - Playwright e2e on a PegaProx host with the plugin loaded.
-- Detail tabs (Interfaces, Gateways, VPN, Logs).
+- Detail tabs (Interfaces, Gateways, VPN, Logs) in the dashboard UI.
+- Audit-log payload hashes (currently metadata-only).
+- Top-talkers + bandwidth sparklines in the Interfaces detail tab.
+
+## [1.0.0] — 2026-05-10
+
+First production release. Aggregates v0.1.0 → v0.7.0 with documentation polish.
+
+### Highlights
+
+- **Client** (`src/client/`): typed HTTPS client with HTTPBasic auth, exponential-backoff retries on idempotent GETs, no-retry POSTs, typed exception ladder (`OPNsenseError`/`OPNsenseAuthError`/`OPNsenseTimeoutError`).
+- **Collectors** (`src/collectors/`, 9 modules): system, interfaces, gateways, services, certificates, hasync, routes/ARP/NDP, firewall_log, vpn (wireguard/ipsec/openvpn aggregate). Every snapshot is a TypedDict.
+- **Writers** (`src/writers/`): aliases + rules CRUD with apply, optional HA syncTo + SHA-256 fingerprint divergence check, JSONL audit log, automatic rollback on apply failure.
+- **Route layer** (`src/routes/`): aggregated `/api/overview` snapshot with auth/timeout/upstream error envelopes.
+- **Metrics** (`src/metrics/`): Prometheus text-format exporter, no `prometheus_client` dependency. ~12 metric families.
+- **UI** (`opnsense.html`): industrial-brutalist Overview view, single static file, no build step, system fonts, `prefers-reduced-motion` aware, responsive 1280/1024/768. Built through the mandatory PegaProx UI Pro Max chain.
+- **Plugin entry point** (`__init__.py`): wires `/api/health`, `/api/ui`, `/api/overview`, `/metrics` via `register_plugin_route` (PegaProx 0.9.9.3+ native frontend hook).
+
+### Documentation
+
+- `README.md` rewritten to reflect actual capabilities and pin v1.0.0 status.
+- `docs/INSTALL.md` — least-privilege OPNsense user recipe + post-install verification.
+- `docs/API.md` — endpoint inventory (plugin + upstream OPNsense endpoints consumed).
+- `docs/TROUBLESHOOTING.md` — TLS, 401, apply-without-config-visible, HA divergence, missing tab.
+
+### QA gate (final)
+
+- `ruff check src tests` → clean.
+- `pytest` → **74 passed, 17 skipped** (live cases skip without env vars).
+- Live verification against the OPNsense 26.1.2 lab `https://190.160.10.108` (VM 125 on pve3) covers: system info, interfaces (incl. RX/TX counters), gateways, services, certs, VPN aggregate, hasync, routes, ARP/NDP, firewall log, alias create+delete cycle.
+- `manifest.json` schema verified by `tests/test_manifest.py`.
+- `config.example.json` shape + placeholder-credential guard verified by `tests/test_config.py`.
+- HTML asset shape, banned AI tells, ARIA landmarks, responsive breakpoints, reduced-motion compliance verified by `tests/test_ui_html.py`.
+
+### Out of scope at v1.0.0
+
+- Multi-host failover at the plugin level — current code targets the first host in `opnsense_hosts`. HA peer is used only for sync verification.
+- Live browser smoke (Playwright) — requires deploying the plugin into a PegaProx host. Slated for v1.1 RC.
+- Detail tabs beyond Overview — interfaces/gateways/vpn/logs detail views.
 
 ## [0.7.0] — 2026-05-10
 

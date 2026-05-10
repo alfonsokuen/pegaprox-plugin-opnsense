@@ -98,7 +98,7 @@ def register():
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v0.5.0 loading', PLUGIN_NAME)
+    log.info('%s v1.0.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     from flask import jsonify  # local import to keep top-level test-safe
@@ -109,7 +109,7 @@ def register():
         cfg = _load_config()
         return jsonify({
             'plugin': PLUGIN_ID,
-            'version': '0.5.0',
+            'version': '1.0.0',
             'configured': bool(cfg.get('opnsense_hosts')),
             'read_only': cfg.get('read_only', False),
         })
