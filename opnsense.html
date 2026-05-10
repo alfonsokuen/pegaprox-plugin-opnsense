@@ -1,38 +1,39 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <title>OPNsense Manager — PegaProx</title>
 <style>
   /* =========================================================================
-     OPNsense Manager — Tactical Telemetry style
-     Dark CRT phosphor palette, monospace + heavy sans, hard 90deg corners,
-     1px grid dividers, no glassmorphism, no gradients, no border-radius.
+     Tokens lifted from PegaProx (docker_swarm/swarm.html):
+       --accent:#e57000 / --bg:#0f1117 / --card:#1a1d27 / --border:#2a2d3a
+       --text:#e4e4e7  / --muted:#71717a / --green:#22c55e / --red:#ef4444
+       --yellow:#eab308 / --blue:#3b82f6
+     Light variant follows PegaProx light layout palette so the iframe blends
+     with whichever theme the dashboard ships (?theme=corp-light|corp-dark).
      ========================================================================= */
   :root {
-    --bg: #0a0a0a;
-    --bg-cell: #111111;
-    --bg-hover: #161616;
-    --rule: #2a2a2a;
-    --rule-strong: #3d3d3d;
-    --fg: #eaeaea;
-    --fg-dim: #8a8a8a;
-    --fg-mute: #5e5e5e;
-    --red: #e61919;
-    --red-dim: #6b1111;
-    --green: #4af626;
-    --amber: #d99923;
-    --space-1: 4px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-5: 24px;
-    --space-6: 32px;
-    --font-mono: ui-monospace, "JetBrains Mono", "IBM Plex Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-    --font-sans: ui-sans-serif, "Helvetica Neue", "Arial Black", system-ui, sans-serif;
-    --t-fast: 120ms cubic-bezier(0.23, 1, 0.32, 1);
+    --accent: #e57000;
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #71717a;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+    --blue: #3b82f6;
+    --row-hover: rgba(255, 255, 255, 0.03);
+  }
+  html.theme-light {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --border: #e4e7eb;
+    --text: #1e2230;
+    --muted: #6b7280;
+    --row-hover: rgba(0, 0, 0, 0.025);
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -41,243 +42,223 @@
     margin: 0;
     padding: 0;
     background: var(--bg);
-    color: var(--fg);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.45;
-    text-rendering: geometricPrecision;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Root layout — single column with header strip + main grid -------------- */
-  .app {
-    display: grid;
-    grid-template-rows: auto 1fr;
-    min-height: 100dvh;
+  /* ---------- shell ----------------------------------------------------- */
+  .shell {
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
   }
 
-  /* Header strip ---------------------------------------------------------- */
-  header.bar {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
+  .header {
+    display: flex;
     align-items: center;
-    gap: var(--space-5);
-    padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid var(--rule-strong);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
   }
-  header.bar .brand {
-    font-family: var(--font-sans);
-    font-weight: 900;
-    font-size: 16px;
-    letter-spacing: -0.02em;
-    text-transform: uppercase;
+  .header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0;
   }
-  header.bar .brand span.tag {
-    font-family: var(--font-mono);
-    font-weight: 400;
-    font-size: 11px;
-    color: var(--fg-dim);
-    margin-left: var(--space-3);
-    letter-spacing: 0.12em;
+  .header h1 .accent { color: var(--accent); }
+  .conn {
+    flex: 1;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  header.bar .conn {
-    font-size: 11px;
-    color: var(--fg-dim);
-  }
-  header.bar .conn b {
-    color: var(--fg);
-    font-weight: 600;
-  }
-  header.bar button.refresh {
+  .conn b { color: var(--text); font-weight: 600; }
+
+  /* ---------- buttons --------------------------------------------------- */
+  .btn {
     appearance: none;
-    background: transparent;
-    color: var(--fg);
-    border: 1px solid var(--rule-strong);
     padding: 6px 14px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
     cursor: pointer;
-    transition: background var(--t-fast), border-color var(--t-fast);
+    font-size: 13px;
+    transition: border-color .15s ease, background .15s ease, transform .1s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
-  header.bar button.refresh:hover { background: var(--bg-hover); }
-  header.bar button.refresh:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-  header.bar button.refresh:active { transform: translateY(1px); }
-  header.bar button.refresh[aria-busy="true"] { color: var(--fg-mute); border-color: var(--rule); }
+  .btn:hover { border-color: var(--accent); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn:active { transform: translateY(1px); }
+  .btn[aria-busy="true"] { color: var(--muted); border-color: var(--border); cursor: wait; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #cc6200; }
 
-  /* Main grid ------------------------------------------------------------ */
-  main.grid {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    grid-auto-rows: minmax(96px, auto);
-    gap: 1px;
-    background: var(--rule);
-    padding: 1px;
+  /* ---------- cards ----------------------------------------------------- */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
   }
-
-  section.cell {
-    background: var(--bg-cell);
-    padding: var(--space-4) var(--space-5);
-    display: grid;
-    grid-template-rows: auto auto 1fr;
-    gap: var(--space-2);
-    min-width: 0;
-  }
-  section.cell h2 {
-    font-family: var(--font-mono);
-    font-weight: 500;
-    font-size: 10px;
-    letter-spacing: 0.16em;
+  .card .title {
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
-    color: var(--fg-dim);
-    margin: 0;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 8px;
   }
-  section.cell .lead {
-    font-family: var(--font-sans);
-    font-weight: 800;
-    font-size: clamp(28px, 3.2vw, 44px);
-    line-height: 0.95;
-    letter-spacing: -0.03em;
-    margin: 0;
+  .card .lead {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text);
+    margin: 0 0 4px;
     word-break: break-word;
   }
-  section.cell .lead.mono {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: clamp(22px, 2.4vw, 32px);
-    letter-spacing: -0.01em;
-  }
-  section.cell .sub {
-    font-size: 11px;
-    color: var(--fg-dim);
-    letter-spacing: 0.04em;
+  .card .lead .accent { color: var(--accent); }
+  .card .sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
   }
 
-  /* Span widths for each card -------------------------------------------- */
+  /* ---------- grid system ---------------------------------------------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 12px;
+  }
   .span-3 { grid-column: span 3; }
   .span-4 { grid-column: span 4; }
   .span-6 { grid-column: span 6; }
   .span-8 { grid-column: span 8; }
   .span-12 { grid-column: span 12; }
 
-  /* Status chips --------------------------------------------------------- */
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 8px;
-    border: 1px solid var(--rule-strong);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fg);
-    background: var(--bg);
-  }
-  .chip::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    background: var(--fg-mute);
-    display: inline-block;
-  }
-  .chip.ok    { color: var(--fg); border-color: #1f3814; }
-  .chip.ok::before    { background: var(--green); }
-  .chip.warn  { color: #f5d590; border-color: #4a3617; }
-  .chip.warn::before  { background: var(--amber); }
-  .chip.error { color: #ffb3b3; border-color: #4a1414; }
-  .chip.error::before { background: var(--red); }
-
-  /* Tables --------------------------------------------------------------- */
-  table.tt {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-  table.tt th, table.tt td {
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--rule);
-    text-align: left;
-    vertical-align: top;
-  }
-  table.tt th {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fg-dim);
-    font-weight: 500;
-    border-bottom-color: var(--rule-strong);
-    background: var(--bg);
-  }
-  table.tt tbody tr:hover { background: var(--bg-hover); }
-  table.tt td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  table.tt td.dim { color: var(--fg-dim); }
-
-  /* Specific subsections ------------------------------------------------- */
   .section-title {
     grid-column: 1 / -1;
-    background: var(--bg);
-    padding: var(--space-3) var(--space-5);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.16em;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
-    color: var(--fg-dim);
-    border-bottom: 1px solid var(--rule);
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 12px 0 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
   }
-  .section-title b { color: var(--fg); font-weight: 600; }
+  .section-title b { color: var(--text); font-weight: 700; margin-right: 6px; }
 
+  /* ---------- badges (status chips) ------------------------------------ */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    gap: 6px;
+  }
+  .badge::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+  }
+  .badge-green { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge-red { background: rgba(239,68,68,.15); color: var(--red); }
+  .badge-yellow { background: rgba(234,179,8,.15); color: var(--yellow); }
+  .badge-blue { background: rgba(59,130,246,.15); color: var(--blue); }
+  .badge-muted { background: rgba(113,113,122,.15); color: var(--muted); }
+  .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* ---------- meters ---------------------------------------------------- */
   .meter {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: var(--space-3);
+    gap: 8px;
     align-items: baseline;
+    margin-top: 8px;
+    font-size: 12px;
   }
+  .meter .label { color: var(--muted); }
+  .meter .value { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
   .meter .bar {
     grid-column: 1 / -1;
-    height: 4px;
-    background: var(--bg);
-    border: 1px solid var(--rule);
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
     overflow: hidden;
   }
   .meter .bar > i {
     display: block;
     height: 100%;
-    background: var(--fg);
-    transition: width var(--t-fast);
+    background: var(--green);
+    transition: width .6s ease;
   }
-  .meter.high .bar > i { background: var(--amber); }
+  .meter.high .bar > i { background: var(--yellow); }
   .meter.crit .bar > i { background: var(--red); }
 
-  /* Empty / error overlay ------------------------------------------------- */
-  .banner {
-    grid-column: 1 / -1;
-    padding: var(--space-4) var(--space-5);
-    border: 1px solid var(--red-dim);
-    background: var(--bg-cell);
-    color: #ffb3b3;
-    font-size: 12px;
+  /* ---------- tables ---------------------------------------------------- */
+  .tt {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
+  }
+  .tt caption { display: none; }
+  .tt th, .tt td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    vertical-align: top;
+  }
+  .tt th {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
     letter-spacing: 0.04em;
   }
-  .banner.dim { border-color: var(--rule-strong); color: var(--fg-dim); }
-  .banner b { color: var(--fg); font-weight: 600; }
+  .tt tbody tr:hover { background: var(--row-hover); }
+  .tt td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tt td.dim { color: var(--muted); }
+  .tt b { font-weight: 600; }
 
-  /* Skeletons ------------------------------------------------------------ */
+  /* ---------- banners (errors / empty) -------------------------------- */
+  .banner {
+    grid-column: 1 / -1;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--red);
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red);
+    font-size: 13px;
+  }
+  .banner b { color: var(--text); font-weight: 700; }
+  .banner.dim { border-color: var(--border); background: var(--card); color: var(--muted); }
+
+  /* ---------- skeletons ------------------------------------------------ */
   .skeleton {
-    background: linear-gradient(90deg, var(--rule) 0%, var(--rule-strong) 50%, var(--rule) 100%);
+    background: linear-gradient(90deg, var(--border) 0%, var(--row-hover) 50%, var(--border) 100%);
     background-size: 200% 100%;
     animation: shimmer 1.4s linear infinite;
     height: 14px;
-    width: 100%;
+    border-radius: 4px;
   }
-  .skeleton.lg { height: 28px; }
-  .skeleton.xl { height: 44px; width: 70%; }
-
+  .skeleton.lg { height: 24px; width: 60%; }
+  .skeleton.xl { height: 36px; width: 80%; }
   @keyframes shimmer {
-    0%   { background-position: 200% 0; }
+    0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -285,75 +266,77 @@
     *, *::before, *::after { transition: none !important; }
   }
 
-  /* Responsive (1024 / 768) ---------------------------------------------- */
+  /* ---------- responsive ----------------------------------------------- */
   @media (max-width: 1280px) {
     .span-3 { grid-column: span 4; }
     .span-4 { grid-column: span 6; }
   }
   @media (max-width: 1024px) {
-    main.grid { grid-template-columns: repeat(6, 1fr); }
+    .grid { grid-template-columns: repeat(6, 1fr); }
     .span-3 { grid-column: span 3; }
     .span-4 { grid-column: span 6; }
     .span-6 { grid-column: span 6; }
     .span-8 { grid-column: span 6; }
+    .conn { display: none; }
   }
   @media (max-width: 768px) {
-    main.grid { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: 1fr; }
     .span-3, .span-4, .span-6, .span-8 { grid-column: span 1; }
-    section.cell .lead { font-size: 28px; }
-    header.bar { grid-template-columns: 1fr auto; gap: var(--space-3); }
-    header.bar .conn { display: none; }
+    .shell { padding: 14px; }
+    .header h1 { font-size: 16px; }
   }
 
-  /* Visually hidden (a11y) ----------------------------------------------- */
   .vh {
     position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0,0,0,0);
-    white-space: nowrap;
-    border: 0;
+    width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
   }
 </style>
 </head>
 <body>
-<div class="app">
-  <header class="bar" role="banner">
-    <div class="brand">
-      OPNsense <span class="tag">/// PEGAPROX MANAGER ///</span>
-    </div>
+<div class="shell">
+  <header class="header" role="banner">
+    <h1>
+      <span class="accent">OPNsense</span>
+      <span style="color: var(--muted); font-weight: 500; font-size: 12px; margin-left: 4px;">Manager</span>
+    </h1>
     <div class="conn" id="conn" aria-live="polite">
-      <b id="conn-host">—</b> &nbsp; <span id="conn-version" class="vh">unknown</span>
+      <b id="conn-host">—</b>
+      <span id="conn-version">cargando…</span>
     </div>
-    <button class="refresh" type="button" id="btn-refresh" aria-label="Refresh overview">
-      Refresh
-    </button>
+    <button class="btn" type="button" id="btn-refresh" aria-label="Refrescar overview">Refresh</button>
   </header>
 
   <main id="grid" class="grid" aria-busy="true">
-    <!-- Skeleton placeholder; replaced after first fetch -->
-    <section class="cell span-12" aria-label="Loading">
-      <h2>System</h2>
-      <div class="skeleton xl" role="presentation"></div>
-      <div class="skeleton lg" role="presentation"></div>
+    <section class="card span-12" aria-label="Cargando">
+      <div class="title">[ system ]</div>
+      <div class="skeleton xl" role="presentation" style="margin-top:8px;"></div>
+      <div class="skeleton lg" role="presentation" style="margin-top:8px;"></div>
     </section>
   </main>
 </div>
 
 <script type="module">
-  // ============================================================ utilities
-  const $ = (s, r=document) => r.querySelector(s);
-  const el = (tag, attrs={}, children=[]) => {
+  // Theme awareness — PegaProx passes ?theme=corp-light|corp-dark|... when
+  // it embeds the plugin in its iframe. Treat anything containing "light"
+  // as light mode, default to dark.
+  (function applyTheme() {
+    const params = new URLSearchParams(location.search);
+    const theme = params.get("theme") || "";
+    if (/light/i.test(theme)) {
+      document.documentElement.classList.add("theme-light");
+    }
+  })();
+
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (tag, attrs = {}, children = []) => {
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
       if (k === "class") n.className = v;
       else if (k === "html") n.innerHTML = v;
       else if (k === "text") n.textContent = v;
-      else if (k.startsWith("data-")) n.setAttribute(k, v);
       else if (k.startsWith("aria-") || k === "role") n.setAttribute(k, v);
+      else if (k.startsWith("data-")) n.setAttribute(k, v);
       else n[k] = v;
     }
     for (const c of (Array.isArray(children) ? children : [children])) {
@@ -364,17 +347,18 @@
   };
   const fmtBytes = (n) => {
     if (!n || n < 0) return "0 B";
-    const u = ["B","KB","MB","GB","TB","PB"];
+    const u = ["B", "KB", "MB", "GB", "TB", "PB"];
     let i = 0, v = n;
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
     return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${u[i]}`;
   };
-  const pct = (a, b) => (b ? Math.min(100, (a / b) * 100) : 0);
   const meterClass = (p) => p > 85 ? "crit" : p > 65 ? "high" : "";
   const escapeText = (s) => String(s ?? "").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
 
-  // ============================================================ fetch
-  const ENDPOINT = "../api/overview"; // resolves under /api/plugins/opnsense/api/overview
+  // Endpoint resolves under /api/plugins/opnsense/api/overview when served by
+  // PegaProx (this HTML lives at /api/plugins/opnsense/api/ui).
+  const ENDPOINT = "../api/overview";
+
   async function fetchOverview() {
     const r = await fetch(ENDPOINT, { credentials: "same-origin" });
     if (r.status === 401) throw Object.assign(new Error("auth"), { kind: "auth" });
@@ -388,7 +372,7 @@
     return body.data;
   }
 
-  // ============================================================ renderers
+  // ---------- renderers ----------
   function renderHeader(data) {
     $("#conn-host").textContent = data?.system?.name || "—";
     const versions = (data?.system?.versions || []).join(" · ");
@@ -399,63 +383,71 @@
   function cellSystem(s) {
     const memPct = s.memory_used_pct || 0;
     const pfPct = s.pf_states_pct || 0;
-    return el("section", { class: "cell span-4", "aria-label": "System" }, [
-      el("h2", {}, "[ SYSTEM ]"),
-      el("p", { class: "lead" }, s.name || "—"),
-      el("div", { class: "sub", html: `${(s.versions || []).map(escapeText).join(" / ") || "version unknown"}` }),
+    return el("section", { class: "card span-4", "aria-label": "Sistema" }, [
+      el("p", { class: "title" }, "[ system ]"),
+      el("p", { class: "lead", text: s.name || "—" }),
+      el("div", { class: "sub", text: (s.versions || []).join(" / ") || "version desconocida" }),
       el("div", { class: "meter " + meterClass(memPct) }, [
-        el("span", { text: "MEM " + (s.memory_used_mb || 0) + "/" + (s.memory_total_mb || 0) + "MB" }),
-        el("span", { text: memPct.toFixed(1) + "%", class: "num" }),
+        el("span", { class: "label", text: "RAM " + (s.memory_used_mb || 0) + "/" + (s.memory_total_mb || 0) + " MB" }),
+        el("span", { class: "value", text: memPct.toFixed(1) + "%" }),
         el("span", { class: "bar" }, [el("i", { style: `width:${memPct}%` })]),
       ]),
       el("div", { class: "meter " + meterClass(pfPct) }, [
-        el("span", { text: "PF " + (s.pf_states_current || 0) + "/" + (s.pf_states_limit || 0) }),
-        el("span", { text: pfPct.toFixed(2) + "%", class: "num" }),
+        el("span", { class: "label", text: "pf states " + (s.pf_states_current || 0) + " / " + (s.pf_states_limit || 0) }),
+        el("span", { class: "value", text: pfPct.toFixed(2) + "%" }),
         el("span", { class: "bar" }, [el("i", { style: `width:${pfPct}%` })]),
       ]),
-      el("div", { class: "sub", text: `LOAD ${(s.loadavg || []).map(n => n.toFixed(2)).join("  ") || "—"} / UP ${s.uptime || "—"}` }),
+      el("div", { class: "sub", text: `Load ${(s.loadavg || []).map(n => n.toFixed(2)).join("  ") || "—"}  ·  Up ${s.uptime || "—"}` }),
     ]);
   }
 
   function cellHA(h) {
     const enabled = !!h.enabled;
-    return el("section", { class: "cell span-4", "aria-label": "HA Sync" }, [
-      el("h2", {}, "[ HA SYNC ]"),
-      el("p", { class: "lead mono", text: enabled ? "ENABLED" : "DISABLED" }),
-      el("div", { class: "sub", text: `IFACE ${h.pfsync_interface || "—"} · PEER ${h.pfsync_peer_ip || "—"}` }),
-      el("div", { class: "sub", text: `VERSION ${h.pfsync_version || "—"}` }),
-      el("div", {}, [
-        el("span", { class: "chip " + (enabled ? "ok" : ""), text: enabled ? "Active" : "Standby" }),
-      ]),
+    const badge = el("span", {
+      class: "badge " + (enabled ? "badge-green" : "badge-muted"),
+      text: enabled ? "Activo" : "Inactivo",
+    });
+    return el("section", { class: "card span-4", "aria-label": "HA Sync" }, [
+      el("p", { class: "title" }, "[ ha sync ]"),
+      el("p", { class: "lead" }, [el("span", { class: "accent", text: enabled ? "ON" : "OFF" })]),
+      el("div", { class: "sub", text: `Iface ${h.pfsync_interface || "—"} · Peer ${h.pfsync_peer_ip || "—"}` }),
+      el("div", { class: "sub", text: `Versión ${h.pfsync_version || "—"}` }),
+      el("div", { class: "chip-row", style: "margin-top:8px;" }, [badge]),
     ]);
   }
 
   function cellCerts(c) {
-    const sev = c.expiring_soon_count > 0 ? "warn" : "ok";
-    return el("section", { class: "cell span-4", "aria-label": "Certificates" }, [
-      el("h2", {}, "[ CERTS ]"),
-      el("p", { class: "lead mono", text: String(c.total) }),
-      el("div", { class: "sub", text: `${c.expiring_soon_count} expiring within 30d` }),
-      el("div", {}, [el("span", { class: "chip " + sev, text: sev === "ok" ? "All current" : "Action soon" })]),
+    const expiringSoon = c.expiring_soon_count > 0;
+    const badgeCls = expiringSoon ? "badge-yellow" : "badge-green";
+    const badgeText = expiringSoon ? `${c.expiring_soon_count} próx. a vencer` : "Todos vigentes";
+    return el("section", { class: "card span-4", "aria-label": "Certificados" }, [
+      el("p", { class: "title" }, "[ certs ]"),
+      el("p", { class: "lead" }, [el("span", { class: "accent", text: String(c.total) })]),
+      el("div", { class: "sub", text: `${c.expiring_soon_count} expiran en 30 días` }),
+      el("div", { class: "chip-row", style: "margin-top:8px;" }, [
+        el("span", { class: "badge " + badgeCls, text: badgeText }),
+      ]),
     ]);
   }
 
   function cellInterfaces(rows) {
-    const cell = el("section", { class: "cell span-8", "aria-label": "Interfaces" }, [
-      el("h2", {}, "[ INTERFACES ]"),
+    const cell = el("section", { class: "card span-8", "aria-label": "Interfaces" }, [
+      el("p", { class: "title" }, "[ interfaces ]"),
     ]);
     const table = el("table", { class: "tt" });
     table.innerHTML = `
-      <caption class="vh">Interfaces with traffic counters</caption>
+      <caption>Interfaces con contadores de tráfico</caption>
       <thead><tr>
-        <th>Iface</th><th>Label</th><th>State</th><th>IPv4</th>
+        <th>Iface</th><th>Etiqueta</th><th>Estado</th><th>IPv4</th>
         <th class="num">RX</th><th class="num">TX</th><th class="num">Err</th><th class="num">Drop</th>
       </tr></thead><tbody></tbody>`;
     const tb = $("tbody", table);
     for (const i of rows) {
       const ip4 = (i.ipv4 || []).map(x => `${x.ipaddr}/${x.subnetbits}`).join(" ") || "—";
       const tr = document.createElement("tr");
-      const stateChip = i.is_up ? '<span class="chip ok">UP</span>' : '<span class="chip error">DOWN</span>';
+      const stateChip = i.is_up
+        ? '<span class="badge badge-green">UP</span>'
+        : '<span class="badge badge-red">DOWN</span>';
       tr.innerHTML = `
         <td><b>${escapeText(i.name)}</b></td>
         <td class="dim">${escapeText(i.label || "—")}</td>
@@ -468,66 +460,72 @@
       tb.appendChild(tr);
     }
     if (!rows.length) {
-      tb.innerHTML = `<tr><td colspan="8" class="dim">No interfaces reported.</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="8" class="dim">Sin interfaces reportadas.</td></tr>`;
     }
     cell.appendChild(table);
     return cell;
   }
 
   function cellGateways(rows) {
-    const cell = el("section", { class: "cell span-4", "aria-label": "Gateways" }, [
-      el("h2", {}, "[ GATEWAYS ]"),
+    const cell = el("section", { class: "card span-4", "aria-label": "Gateways" }, [
+      el("p", { class: "title" }, "[ gateways ]"),
     ]);
     const table = el("table", { class: "tt" });
     table.innerHTML = `
-      <caption class="vh">Gateways with RTT and loss</caption>
+      <caption>Gateways con RTT y pérdida</caption>
       <thead><tr>
-        <th>Name</th><th>Status</th><th class="num">RTT</th><th class="num">Loss</th>
+        <th>Nombre</th><th>Estado</th><th class="num">RTT</th><th class="num">Loss</th>
       </tr></thead><tbody></tbody>`;
     const tb = $("tbody", table);
     for (const g of rows) {
       const tr = document.createElement("tr");
-      const sev = g.is_up ? "ok" : "error";
+      const cls = g.is_up ? "badge-green" : "badge-red";
       tr.innerHTML = `
-        <td><b>${escapeText(g.name)}</b><div class="dim">${escapeText(g.address)}</div></td>
-        <td><span class="chip ${sev}">${escapeText(g.status_human || g.status)}</span></td>
-        <td class="num">${g.delay_ms ? g.delay_ms.toFixed(1) + "ms" : "—"}</td>
+        <td><b>${escapeText(g.name)}</b><div class="dim" style="font-size:11px;">${escapeText(g.address)}</div></td>
+        <td><span class="badge ${cls}">${escapeText(g.status_human || g.status)}</span></td>
+        <td class="num">${g.delay_ms ? g.delay_ms.toFixed(1) + " ms" : "—"}</td>
         <td class="num">${g.loss_pct ? g.loss_pct.toFixed(1) + "%" : "—"}</td>`;
       tb.appendChild(tr);
     }
     if (!rows.length) {
-      tb.innerHTML = `<tr><td colspan="4" class="dim">No gateways configured.</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="4" class="dim">Sin gateways configurados.</td></tr>`;
     }
     cell.appendChild(table);
     return cell;
   }
 
   function cellServices(s) {
-    const cell = el("section", { class: "cell span-6", "aria-label": "Services" }, [
-      el("h2", {}, "[ SERVICES ]"),
-      el("p", { class: "lead mono", text: `${s.running}/${s.total}` }),
-      el("div", { class: "sub", text: `${s.stopped} stopped` }),
+    const cell = el("section", { class: "card span-6", "aria-label": "Servicios" }, [
+      el("p", { class: "title" }, "[ servicios ]"),
+      el("p", { class: "lead" }, [
+        el("span", { class: "accent", text: String(s.running) }),
+        document.createTextNode(` / ${s.total}`),
+      ]),
+      el("div", { class: "sub", text: `${s.stopped} detenidos` }),
     ]);
     if (s.stopped > 0) {
-      const list = el("div", { class: "sub" });
       const stopped = s.items.filter(x => !x.running).slice(0, 6).map(x => x.name);
-      list.textContent = "STOPPED: " + stopped.join(", ");
-      cell.appendChild(list);
+      cell.appendChild(el("div", {
+        class: "sub",
+        style: "margin-top:8px;",
+        text: "Detenidos: " + stopped.join(", "),
+      }));
     }
     return cell;
   }
 
   function cellVPN(v) {
-    const wgChip = v.wireguard_enabled ? "ok" : "";
-    const wgLbl = v.wireguard_enabled ? "ON" : "OFF";
-    return el("section", { class: "cell span-6", "aria-label": "VPN" }, [
-      el("h2", {}, "[ VPN ]"),
-      el("p", { class: "lead mono", text: `${v.wireguard_peers.length} WG · ${v.ipsec_phase1.length} IPSEC · ${v.openvpn_sessions.length} OVPN` }),
-      el("div", {}, [
-        el("span", { class: "chip " + wgChip, text: "WireGuard " + wgLbl }),
-        el("span", { class: "chip", text: "IPsec " + (v.ipsec_phase1.length || 0) }),
-        el("span", { class: "chip", text: "OpenVPN " + (v.openvpn_sessions.length || 0) }),
-      ]),
+    const wgChip = el("span", {
+      class: "badge " + (v.wireguard_enabled ? "badge-green" : "badge-muted"),
+      text: "WireGuard " + (v.wireguard_enabled ? "ON" : "OFF"),
+    });
+    const ipsecChip = el("span", { class: "badge badge-blue", text: `IPsec ${v.ipsec_phase1.length}` });
+    const ovpnChip = el("span", { class: "badge badge-blue", text: `OpenVPN ${v.openvpn_sessions.length}` });
+    const lead = `${v.wireguard_peers.length} WG · ${v.ipsec_phase1.length} IPSEC · ${v.openvpn_sessions.length} OVPN`;
+    return el("section", { class: "card span-6", "aria-label": "VPN" }, [
+      el("p", { class: "title" }, "[ vpn ]"),
+      el("p", { class: "lead", text: lead }),
+      el("div", { class: "chip-row", style: "margin-top:8px;" }, [wgChip, ipsecChip, ovpnChip]),
     ]);
   }
 
@@ -538,10 +536,16 @@
       cellSystem(data.system),
       cellHA(data.hasync),
       cellCerts(data.certs),
-      el("h2", { class: "section-title" }, [el("b", { text: "DATA PLANE" }), " /// interfaces · gateways · routing"]),
+      el("h2", { class: "section-title" }, [
+        el("b", { text: "Data plane" }),
+        document.createTextNode("interfaces · gateways · routing"),
+      ]),
       cellInterfaces(data.interfaces),
       cellGateways(data.gateways),
-      el("h2", { class: "section-title" }, [el("b", { text: "CONTROL PLANE" }), " /// services · vpn · certs"]),
+      el("h2", { class: "section-title" }, [
+        el("b", { text: "Control plane" }),
+        document.createTextNode("services · vpn · certs"),
+      ]),
       cellServices(data.services),
       cellVPN(data.vpn),
     );
@@ -550,24 +554,27 @@
   function renderError(err) {
     const main = $("#grid");
     main.setAttribute("aria-busy", "false");
-    let title = "Upstream error";
-    let body = err.detail || err.message || "Unknown error";
+    let title = "Error upstream";
+    let body = err.detail || err.message || "Error desconocido";
     if (err.kind === "auth") {
-      title = "Authentication failed";
-      body = "OPNsense rejected the API key + secret. Check Settings.";
+      title = "Autenticación falló";
+      body = "OPNsense rechazó la API key + secret. Revisá la configuración del plugin.";
     } else if (err.kind === "timeout") {
-      title = "Timed out";
-      body = "OPNsense did not respond within the allotted time. Try again or check connectivity.";
+      title = "Timeout";
+      body = "OPNsense no respondió a tiempo. Reintentá o verificá conectividad.";
+    } else if (err.kind === "unconfigured") {
+      title = "Plugin sin configurar";
+      body = "Editá /opt/PegaProx/plugins/opnsense/config.json con un host OPNsense.";
     }
     main.replaceChildren(
       el("div", { class: "banner", role: "alert" }, [
-        el("b", { text: title.toUpperCase() }), document.createTextNode(" — "),
-        document.createTextNode(body),
+        el("b", { text: title }),
+        document.createTextNode(" — " + body),
       ])
     );
   }
 
-  // ============================================================ controller
+  // ---------- controller ----------
   let inFlight = false;
   async function refresh() {
     if (inFlight) return;
@@ -589,7 +596,6 @@
   }
 
   $("#btn-refresh").addEventListener("click", refresh);
-  // Auto-refresh slow tick: 30s.
   setInterval(refresh, 30_000);
   refresh();
 </script>

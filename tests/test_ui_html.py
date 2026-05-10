@@ -64,18 +64,31 @@ def test_html_uses_opnsense_overview_endpoint():
     assert "../api/overview" in body
 
 
-def test_html_has_industrial_brutalist_palette():
+def test_html_uses_pegaprox_design_tokens():
     body = _content()
-    # Tactical Telemetry colours must be set as CSS variables, not pasted
-    # ad-hoc on every selector.
-    assert "--bg: #0a0a0a" in body
-    assert "--fg: #eaeaea" in body
-    assert "--red: #e61919" in body
-    assert "--green: #4af626" in body
-    # No border-radius rule is allowed (90deg corners enforce brutalism).
-    assert not re.search(r"border-radius\s*:\s*[1-9]", body), (
-        "border-radius is banned in this palette — keep corners square"
-    )
+    # The plugin must blend with PegaProx's dashboard. Keep the same token
+    # names + values lifted from docker_swarm/swarm.html so a future PegaProx
+    # palette refresh affects us in lockstep.
+    for token in (
+        "--accent: #e57000",
+        "--bg: #0f1117",
+        "--card: #1a1d27",
+        "--border: #2a2d3a",
+        "--text: #e4e4e7",
+        "--green: #22c55e",
+        "--red: #ef4444",
+        "--yellow: #eab308",
+        "--blue: #3b82f6",
+    ):
+        assert token in body, f"missing PegaProx token: {token}"
+
+
+def test_html_supports_theme_query_param():
+    body = _content()
+    # PegaProx passes ?theme=corp-light|corp-dark when embedding the iframe.
+    # The plugin must honour at least the light variant.
+    assert "theme-light" in body
+    assert 'params.get("theme")' in body or "params.get('theme')" in body
 
 
 def test_html_avoids_banned_ai_tells():
@@ -98,8 +111,9 @@ def test_html_includes_aria_landmarks_and_busy_state():
     body = _content()
     assert 'role="banner"' in body
     assert 'aria-busy="true"' in body
-    # Refresh button must be accessible.
-    assert 'aria-label="Refresh overview"' in body
+    # Refresh button must be accessible (label may be ES or EN).
+    assert ('aria-label="Refresh overview"' in body
+            or 'aria-label="Refrescar overview"' in body)
 
 
 def test_html_has_responsive_breakpoints():

@@ -11,6 +11,32 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Top-talkers + bandwidth sparklines in the Interfaces detail tab.
 
+## [1.1.0] — 2026-05-10
+
+### Changed
+- **UI rewritten to match the PegaProx dashboard**. The v1.0.x industrial-brutalist look (Tactical Telemetry CRT, hard 90° corners, monospace heavy) was visually disjoint from PegaProx's standard SaaS-y look. v1.1.0 lifts the same design tokens used in `docker_swarm/swarm.html` so the iframe blends with the host:
+  - Tokens: `--accent: #e57000` (orange), `--bg: #0f1117`, `--card: #1a1d27`, `--border: #2a2d3a`, `--text: #e4e4e7`, `--muted: #71717a`, `--green/red/yellow/blue` traffic-light palette.
+  - System font stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, …`).
+  - Cards with 8 px radius + 16 px padding, badge pills (9999 px radius), 6 px buttons. No more hard corners.
+  - Badge component (`.badge-green/.badge-red/.badge-yellow/.badge-blue/.badge-muted`) reused for status chips so they match the rest of PegaProx exactly.
+  - Theme awareness: respects `?theme=corp-light` (PegaProx passes the active theme on the iframe URL). `theme-light` HTML class swaps the palette to light tokens.
+  - Section headers and meters preserved, just restyled.
+- Plugin entry-point version bumped to 1.1.0; manifest.json same.
+
+### Fixed
+- **Axe `page-has-heading-one` (best-practice, moderate)**: added `<h1>` for the plugin brand. Previous build used `<div class="brand">`.
+
+### Verified live (Playwright)
+- Dashboard tab "OPNsense Manager" still renders inside the PegaProx sandboxed iframe (`/api/plugins/opnsense/api/ui?theme=corp-dark&cluster=…`).
+- `/api/overview` polled twice: both 200 OK, ~120 ms.
+- Console: 0 errors, 2 warnings (PegaProx's own SSE setup, unrelated).
+- Axe-core (WCAG 2.0 A + AA): **0 violations, 18 passes** (re-verified after token swap).
+- Color-contrast rule: 0 violations.
+- Multi-viewport screenshots captured at 1280, 1024, 768 (`opnsense-1280-final.png`, `opnsense-1024-final.png`, `opnsense-768-final.png`).
+
+### Out of scope
+- Per-section deep dives (Interfaces detail, Gateways detail, VPN detail, Logs) — Overview is the v1 surface; detail tabs are slated for v1.2.
+
 ## [1.0.2] — 2026-05-10
 
 ### Fixed
