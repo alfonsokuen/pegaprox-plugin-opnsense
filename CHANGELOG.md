@@ -4,12 +4,29 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.1+)
+### Planned (v1.3+)
 - Additional writers: NAT, DHCP static mappings, Unbound host/domain overrides, WireGuard peers (same pattern as Aliases/Rules).
-- Playwright e2e on a PegaProx host with the plugin loaded.
-- Detail tabs (Interfaces, Gateways, VPN, Logs) in the dashboard UI.
+- Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
-- Top-talkers + bandwidth sparklines in the Interfaces detail tab.
+- Per-iface drilldown panel (timeseries graph + IP sessions snapshot).
+
+## [1.2.0] — 2026-05-10
+
+### Added
+- **Tab navigation** in the dashboard UI: Overview · Network · VPN · Logs. Hash-based routing (`#overview`, `#network`, `#vpn`, `#logs`); state preserved across reloads. WAI-ARIA tablist, keyboard-focusable.
+- **/api/network endpoint** — interfaces + gateways + routes + ARP + NDP. Heavier than overview (ARP/NDP can be hundreds of rows on busy networks) so it runs only when the Network tab is active.
+- **/api/logs endpoint** — paginated firewall log tail (`?limit=N`, default 100, capped at 500). Wraps `collect_firewall_log` with auth/timeout/upstream envelopes.
+- **Live traffic graphs**: SVG sparklines per interface (RX green / TX blue) in every interfaces table, plus a stacked area chart on the Network tab showing the top-4 interfaces by current throughput. Rates computed client-side by diffing successive byte counters; window of 60 samples (~10 min at 10s polls). Zero front-end deps — vanilla SVG.
+- **Routes / ARP / NDP tables** on the Network tab (truncated to 50 rows with a "showing X of Y" footer).
+- **Full WireGuard / IPsec / OpenVPN tables** on the VPN tab — peer name, pubkey/CN, endpoint, RX/TX, latest handshake.
+- **Log viewer** with live filter (search by src/dst/iface/rule) + action filter (pass/block/rdr/nat). Auto-poll every 10s.
+
+### Changed
+- Overview poll cadence accelerated 30s → 10s so sparklines update meaningfully when sitting on the dashboard.
+- Interfaces table now has a Rate column (↓ RX/s, ↑ TX/s) and a sparkline column; old "Etiqueta" + "Err" + "Drop" columns merged into combined cells to fit the new data.
+
+### Fixed
+- Stale poll timer when switching tabs — replaced single `setInterval` with per-tab schedule that resets on `switchTab`.
 
 ## [1.1.2] — 2026-05-10
 

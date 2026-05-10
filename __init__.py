@@ -110,7 +110,7 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.1.2',
+        'version': '1.2.0',
         'configured': bool(cfg.get('opnsense_hosts')),
         'read_only': cfg.get('read_only', False),
     }
@@ -122,15 +122,40 @@ def _h_ui():
                      mimetype='text/html')
 
 
+def _unconfigured_response():
+    from flask import jsonify
+    return jsonify({'ok': False, 'error': 'unconfigured',
+                    'detail': 'No opnsense_hosts in config.json — '
+                              'edit /opt/PegaProx/plugins/opnsense/config.json'}), 400
+
+
 def _h_overview():
     from flask import jsonify
     from src.routes import build_overview_payload
     host = _first_host_from_config()
     if host is None:
-        return jsonify({'ok': False, 'error': 'unconfigured',
-                        'detail': 'No opnsense_hosts in config.json — '
-                                  'edit /opt/PegaProx/plugins/opnsense/config.json'}), 400
+        return _unconfigured_response()
     status, payload = build_overview_payload(host)
+    return jsonify(payload), status
+
+
+def _h_network():
+    from flask import jsonify
+    from src.routes import build_network_payload
+    host = _first_host_from_config()
+    if host is None:
+        return _unconfigured_response()
+    status, payload = build_network_payload(host)
+    return jsonify(payload), status
+
+
+def _h_logs():
+    from flask import jsonify, request
+    from src.routes import build_logs_payload
+    host = _first_host_from_config()
+    if host is None:
+        return _unconfigured_response()
+    status, payload = build_logs_payload(host, limit=request.args.get('limit', 100))
     return jsonify(payload), status
 
 
@@ -163,7 +188,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.1.2 loading', PLUGIN_NAME)
+    log.info('%s v1.2.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     routes = {
@@ -172,6 +197,8 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         'health': _h_health,
         'ui': _h_ui,
         'overview': _h_overview,
+        'network': _h_network,
+        'logs': _h_logs,
         'metrics': _h_metrics,
     }
     for path, handler in routes.items():

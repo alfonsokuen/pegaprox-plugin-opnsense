@@ -116,7 +116,25 @@ def test_html_includes_aria_landmarks_and_busy_state():
     assert 'aria-busy="true"' in body
     # Refresh button must be accessible (label may be ES or EN).
     assert ('aria-label="Refresh overview"' in body
-            or 'aria-label="Refrescar overview"' in body)
+            or 'aria-label="Refrescar overview"' in body
+            or 'aria-label="Refrescar vista"' in body)
+
+
+def test_html_has_tablist_with_four_tabs():
+    body = _content()
+    assert 'role="tablist"' in body, "missing tablist landmark"
+    for tab in ("overview", "network", "vpn", "logs"):
+        assert f'data-tab="{tab}"' in body, f"missing tab: {tab}"
+    # Exactly one tab must declare aria-selected="true" in markup
+    # (excluding the CSS selector that also contains the same string).
+    in_markup = re.findall(r'<button[^>]*aria-selected="true"[^>]*>', body)
+    assert len(in_markup) == 1
+
+
+def test_html_uses_per_tab_endpoints():
+    body = _content()
+    for ep in ("../api/overview", "../api/network", "../api/logs"):
+        assert ep in body, f"missing endpoint reference: {ep}"
 
 
 def test_html_has_responsive_breakpoints():

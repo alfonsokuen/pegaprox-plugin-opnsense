@@ -9,7 +9,14 @@ import responses
 
 from src.client import OPNsenseClient, OPNsenseHost
 from src.client.opnsense_client import _RetryPolicy
-from src.routes import build_overview, build_overview_payload
+from src.routes import (
+    build_logs_payload,
+    build_network,
+    build_network_payload,
+    build_overview,
+    build_overview_payload,
+)
+from src.routes.logs import _clamp_limit
 
 
 FIXTURES = pathlib.Path(__file__).parent.parent / "fixtures" / "live"
@@ -128,3 +135,101 @@ def test_overview_payload_shape_keys_present(missing_key: str):
     _mock_all_endpoints()
     out = build_overview(_client())
     assert missing_key in out
+
+
+# ---------- /network ----------
+
+def _mock_network_endpoints() -> None:
+    pairs = [
+        ("/api/diagnostics/interface/getInterfaceConfig", "interface_config.json"),
+        ("/api/diagnostics/interface/getInterfaceStatistics", "interface_statistics.json"),
+        ("/api/routes/gateway/status", "gateway_status.json"),
+        ("/api/diagnostics/interface/getRoutes", "getRoutes.json"),
+        ("/api/diagnostics/interface/getArp", "getArp.json"),
+        ("/api/diagnostics/interface/getNdp", "getNdp.json"),
+    ]
+    for path, fixture in pairs:
+        responses.add(
+            responses.GET,
+            f"https://opnsense.test{path}",
+            json=json.loads((FIXTURES / fixture).read_text()),
+            status=200,
+        )
+
+
+@responses.activate
+def test_network_aggregates_keys():
+    _mock_network_endpoints()
+    out = build_network(_client())
+    assert set(out.keys()) == {"interfaces", "gateways", "routes", "arp", "ndp"}
+    assert isinstance(out["routes"], list)
+    assert isinstance(out["arp"], list)
+    assert isinstance(out["ndp"], list)
+
+
+@responses.activate
+def test_network_payload_ok_envelope():
+    _mock_network_endpoints()
+    status, payload = build_network_payload(HOST)
+    assert status == 200
+    assert payload["ok"] is True
+    assert "interfaces" in payload["data"]
+
+
+@responses.activate
+def test_network_payload_auth_failure():
+    responses.add(
+        responses.GET,
+        "https://opnsense.test/api/diagnostics/interface/getInterfaceConfig",
+        json={"message": "no"},
+        status=401,
+    )
+    status, payload = build_network_payload(HOST)
+    assert status == 401
+    assert payload["error"] == "auth"
+
+
+# ---------- /logs ----------
+
+def test_logs_clamp_limit_defaults():
+    assert _clamp_limit(None) == 100
+    assert _clamp_limit("abc") == 100
+    assert _clamp_limit(0) == 100
+    assert _clamp_limit(-50) == 100
+
+
+def test_logs_clamp_limit_caps_at_max():
+    assert _clamp_limit(50) == 50
+    assert _clamp_limit(500) == 500
+    assert _clamp_limit(10000) == 500
+    assert _clamp_limit("250") == 250
+
+
+@responses.activate
+def test_logs_payload_returns_entries():
+    responses.add(
+        responses.GET,
+        "https://opnsense.test/api/diagnostics/firewall/log?limit=100",
+        json=json.loads((FIXTURES / "firewall_log.json").read_text()),
+        status=200,
+        match_querystring=True,
+    )
+    status, payload = build_logs_payload(HOST, limit=100)
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["data"]["limit"] == 100
+    assert isinstance(payload["data"]["entries"], list)
+
+
+@responses.activate
+def test_logs_payload_auth_failure():
+    responses.add(
+        responses.GET,
+        "https://opnsense.test/api/diagnostics/firewall/log?limit=100",
+        json={"message": "no"},
+        status=401,
+        match_querystring=True,
+    )
+    status, payload = build_logs_payload(HOST, limit=100)
+    assert status == 401
+    assert payload["error"] == "auth"
