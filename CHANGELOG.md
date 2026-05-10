@@ -11,6 +11,14 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Top-talkers + bandwidth sparklines in the Interfaces detail tab.
 
+## [1.0.2] — 2026-05-10
+
+### Fixed
+- **`No module named 'src'` at runtime under PegaProx**. PegaProx imports plugin packages without adding their directory to `sys.path`, so absolute imports like `from src.client import …` failed (`/api/overview` returned HTTP 500 with `No module named 'src'`). Plugin `__init__.py` now inserts `PLUGIN_DIR` into `sys.path` early, before any `src.*` import. Tests are unaffected (their `conftest.py` already does the same insertion).
+
+### Verified
+- Live screenshot via Playwright: tab "OPNsense Manager" renders inside PegaProx iframe at `/api/plugins/opnsense/api/ui` (sandbox `allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads`); after fix, `/api/overview` returns the expected JSON.
+
 ## [1.0.1] — 2026-05-10
 
 ### Fixed

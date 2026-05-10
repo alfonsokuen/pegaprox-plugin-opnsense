@@ -20,9 +20,24 @@ Features (v1 scope — see PLUGIN_BRIEF.md):
 """
 
 import os
+import sys
 import json
 import logging
 import threading
+
+PLUGIN_ID = 'opnsense'
+PLUGIN_NAME = 'OPNsense Manager'
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_DIR = os.path.join(PLUGIN_DIR, 'state')
+CONFIG_PATH = os.path.join(PLUGIN_DIR, 'config.json')
+
+# PegaProx imports plugin packages via importlib without adding their
+# directory to sys.path, so absolute `from src.X import Y` calls inside
+# the plugin would fail with `No module named 'src'`. Inject the plugin
+# directory ourselves so `src.*` resolves both under PegaProx and during
+# pytest (where conftest.py also adds it).
+if PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, PLUGIN_DIR)
 
 # These imports only resolve inside a PegaProx host. Guard them so the
 # package can still be imported in unit-test / linting contexts without
@@ -33,12 +48,6 @@ try:  # pragma: no cover - exercised only on PegaProx hosts
     from pegaprox.utils.audit import log_audit  # noqa: F401
 except ImportError:  # pragma: no cover
     register_plugin_route = None  # type: ignore[assignment]
-
-PLUGIN_ID = 'opnsense'
-PLUGIN_NAME = 'OPNsense Manager'
-PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
-STATE_DIR = os.path.join(PLUGIN_DIR, 'state')
-CONFIG_PATH = os.path.join(PLUGIN_DIR, 'config.json')
 
 log = logging.getLogger(f'plugin.{PLUGIN_ID}')
 
@@ -101,7 +110,7 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.0.1',
+        'version': '1.0.2',
         'configured': bool(cfg.get('opnsense_hosts')),
         'read_only': cfg.get('read_only', False),
     }
@@ -154,7 +163,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.0.1 loading', PLUGIN_NAME)
+    log.info('%s v1.0.2 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     routes = {
