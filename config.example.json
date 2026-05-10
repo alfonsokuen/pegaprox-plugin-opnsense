@@ -1,0 +1,24 @@
+{
+    "opnsense_hosts": [
+        {
+            "name": "NODOA",
+            "url": "https://10.0.0.1",
+            "api_key": "REPLACE_WITH_OPNSENSE_API_KEY",
+            "api_secret": "REPLACE_WITH_OPNSENSE_API_SECRET",
+            "verify_tls": true,
+            "ca_bundle_path": ""
+        },
+        {
+            "name": "NODOB",
+            "url": "https://10.0.0.2",
+            "api_key": "REPLACE_WITH_OPNSENSE_API_KEY",
+            "api_secret": "REPLACE_WITH_OPNSENSE_API_SECRET",
+            "verify_tls": true,
+            "ca_bundle_path": ""
+        }
+    ],
+    "ha_active_url": "https://10.0.0.10",
+    "poll_interval": 30,
+    "read_only": false,
+    "monitor_both_nodes": true
+}
