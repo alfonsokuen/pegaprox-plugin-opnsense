@@ -464,6 +464,8 @@
     <button class="tab" role="tab" id="tab-vpn" data-tab="vpn" aria-selected="false" aria-controls="grid">VPN</button>
     <button class="tab" role="tab" id="tab-logs" data-tab="logs" aria-selected="false" aria-controls="grid">Logs</button>
     <button class="tab" role="tab" id="tab-nat" data-tab="nat" aria-selected="false" aria-controls="grid">NAT</button>
+    <button class="tab" role="tab" id="tab-dns" data-tab="dns" aria-selected="false" aria-controls="grid">DNS</button>
+    <button class="tab" role="tab" id="tab-wg" data-tab="wg" aria-selected="false" aria-controls="grid">WG peers</button>
   </div>
   </nav>
 
@@ -725,6 +727,8 @@
     network: "../api/network",
     logs: "../api/logs",
     nat: "../api/nat",
+    unbound: "../api/unbound",
+    wg: "../api/wg",
   };
 
   async function fetchJson(url) {
@@ -1328,6 +1332,210 @@
     main.setAttribute("aria-busy", "false");
   }
 
+  // ---------- generic CRUD tab helper (used by DNS + WG) ----------
+  function crudForm({ titleText, fields, formState, busy, error, onSubmit }) {
+    const card = el("section", { class: "card span-12", "aria-label": titleText }, [
+      el("p", { class: "title", text: titleText }),
+    ]);
+    const grid = el("div", { style: "display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 8px;" });
+    for (const f of fields) {
+      const wrap = el("label", { style: "display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;" }, [
+        document.createTextNode(f.label),
+      ]);
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = formState[f.key] ?? "";
+      input.style.cssText = "background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit;";
+      input.setAttribute("aria-label", f.label);
+      input.addEventListener("input", (e) => { formState[f.key] = e.target.value; });
+      wrap.appendChild(input);
+      grid.appendChild(wrap);
+    }
+    card.appendChild(grid);
+    const actions = el("div", { style: "display: flex; gap: 8px; align-items: center; margin-top: 10px;" });
+    const btn = el("button", { class: "btn btn-primary", type: "button" }, ["Crear"]);
+    btn.disabled = busy; btn.setAttribute("aria-busy", busy ? "true" : "false");
+    btn.addEventListener("click", onSubmit);
+    actions.appendChild(btn);
+    if (error) {
+      actions.appendChild(el("span", { style: "color: #fca5a5; font-size: 12px; font-weight: 600;", role: "alert", text: "Error: " + error }));
+    }
+    card.appendChild(actions);
+    return card;
+  }
+
+  function crudTable({ titleText, rows, columns, onDelete, busy }) {
+    const card = el("section", { class: "card span-12", "aria-label": titleText }, [
+      el("p", { class: "title", text: `[ ${titleText} (${rows.length}) ]` }),
+    ]);
+    const t = document.createElement("table");
+    t.className = "tt";
+    const ths = columns.map(c => `<th>${escapeText(c.h)}</th>`).join("") + '<th><span class="vh">Acciones</span></th>';
+    t.innerHTML = `<thead><tr>${ths}</tr></thead><tbody></tbody>`;
+    const tb = $("tbody", t);
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      const cells = columns.map(c => {
+        const v = c.fn ? c.fn(r) : (r[c.k] ?? "—");
+        return `<td class="${c.cls || ""}">${escapeText(String(v ?? "—"))}</td>`;
+      }).join("");
+      tr.innerHTML = cells + "<td></td>";
+      const btn = el("button", { class: "btn", type: "button", "aria-label": `Eliminar ${r.uuid}`, text: "Eliminar" });
+      btn.disabled = busy;
+      btn.addEventListener("click", () => onDelete(r.uuid));
+      tr.lastElementChild.appendChild(btn);
+      tb.appendChild(tr);
+    }
+    if (!rows.length) {
+      tb.innerHTML = `<tr><td colspan="${columns.length + 1}" class="dim">Sin entradas configuradas.</td></tr>`;
+    }
+    card.appendChild(t);
+    return card;
+  }
+
+  // ---------- DNS tab (Unbound host overrides) ----------
+  let dnsRows = [];
+  let dnsForm = { hostname: "", domain: "", server: "", rr: "A", description: "" };
+  let dnsError = "", dnsBusy = false;
+
+  async function dnsList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.unbound);
+      dnsRows = data.hosts || [];
+      dnsError = "";
+    } catch (e) { dnsRows = []; dnsError = e.detail || e.message || "error"; }
+  }
+  async function dnsCreate() {
+    dnsBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.unbound, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", host: dnsForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dnsForm = { hostname: "", domain: "", server: "", rr: "A", description: "" };
+      dnsError = "";
+    } catch (e) { dnsError = e.message; }
+    dnsBusy = false; await dnsList(); renderDnsTab();
+  }
+  async function dnsDelete(uuid) {
+    if (!confirm(`¿Eliminar host override ${uuid.slice(0,8)}…?`)) return;
+    dnsBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.unbound, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dnsError = "";
+    } catch (e) { dnsError = e.message; }
+    dnsBusy = false; await dnsList(); renderDnsTab();
+  }
+  function renderDnsTab() {
+    const form = crudForm({
+      titleText: "[ nuevo host override ]",
+      fields: [
+        { key: "hostname", label: "Hostname (router)" },
+        { key: "domain", label: "Domain (lab.local)" },
+        { key: "server", label: "IP destino" },
+        { key: "rr", label: "RR (A|AAAA|MX)" },
+        { key: "description", label: "Descripción" },
+      ],
+      formState: dnsForm, busy: dnsBusy, error: dnsError, onSubmit: dnsCreate,
+    });
+    const table = crudTable({
+      titleText: "host overrides existentes",
+      rows: dnsRows,
+      columns: [
+        { h: "Hostname", k: "hostname" },
+        { h: "Domain", k: "domain", cls: "dim" },
+        { h: "RR", k: "rr", cls: "dim" },
+        { h: "Server", k: "server", cls: "mono" },
+        { h: "Descripción", k: "description" },
+        { h: "Estado", fn: r => (r.enabled === "1" || r.enabled === 1 || r.enabled === true) ? "on" : "off", cls: "dim" },
+      ],
+      onDelete: dnsDelete, busy: dnsBusy,
+    });
+    const main = $("#grid");
+    main.replaceChildren(form, table);
+    main.setAttribute("aria-busy", "false");
+  }
+
+  // ---------- WG peers tab ----------
+  let wgRows = [];
+  let wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "" };
+  let wgError = "", wgBusy = false;
+
+  async function wgList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.wg);
+      wgRows = data.peers || [];
+      wgError = "";
+    } catch (e) { wgRows = []; wgError = e.detail || e.message || "error"; }
+  }
+  async function wgCreate() {
+    wgBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.wg, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", peer: wgForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "" };
+      wgError = "";
+    } catch (e) { wgError = e.message; }
+    wgBusy = false; await wgList(); renderWgTab();
+  }
+  async function wgDelete(uuid) {
+    if (!confirm(`¿Eliminar peer ${uuid.slice(0,8)}…?`)) return;
+    wgBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.wg, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      wgError = "";
+    } catch (e) { wgError = e.message; }
+    wgBusy = false; await wgList(); renderWgTab();
+  }
+  function renderWgTab() {
+    const form = crudForm({
+      titleText: "[ nuevo WireGuard peer ]",
+      fields: [
+        { key: "name", label: "Nombre" },
+        { key: "pubkey", label: "Pubkey (44 chars base64)" },
+        { key: "tunneladdress", label: "Tunnel address (10.99.0.5/32)" },
+        { key: "keepalive", label: "Keepalive (s)" },
+        { key: "psk", label: "PSK (opcional)" },
+      ],
+      formState: wgForm, busy: wgBusy, error: wgError, onSubmit: wgCreate,
+    });
+    const table = crudTable({
+      titleText: "peers existentes",
+      rows: wgRows,
+      columns: [
+        { h: "Nombre", k: "name" },
+        { h: "Pubkey", fn: r => (r.pubkey || "").slice(0, 18) + "…", cls: "dim mono" },
+        { h: "Tunnel", k: "tunneladdress", cls: "mono" },
+        { h: "Keepalive", k: "keepalive", cls: "dim" },
+        { h: "Estado", fn: r => (r.enabled === "1" || r.enabled === 1 || r.enabled === true) ? "on" : "off", cls: "dim" },
+      ],
+      onDelete: wgDelete, busy: wgBusy,
+    });
+    const main = $("#grid");
+    main.replaceChildren(form, table);
+    main.setAttribute("aria-busy", "false");
+  }
+
   // ---------- drilldown ----------
   function dlChart(name) {
     const rates = trafficRates.get(name) || [];
@@ -1536,6 +1744,8 @@
     vpn:      { endpoint: ENDPOINTS.overview, render: renderVPN,      refresh: 30_000 },
     logs:     { endpoint: ENDPOINTS.logs + "?limit=200", render: renderLogs, refresh: 10_000 },
     nat:      { custom: true, refresh: 0 },
+    dns:      { custom: true, refresh: 0 },
+    wg:       { custom: true, refresh: 0 },
   };
 
   let currentTab = "overview";
@@ -1592,6 +1802,18 @@
       if (cfg.custom && currentTab === "nat") {
         await natList();
         renderNatTab();
+        main.setAttribute("aria-busy", "false");
+        return;
+      }
+      if (cfg.custom && currentTab === "dns") {
+        await dnsList();
+        renderDnsTab();
+        main.setAttribute("aria-busy", "false");
+        return;
+      }
+      if (cfg.custom && currentTab === "wg") {
+        await wgList();
+        renderWgTab();
         main.setAttribute("aria-busy", "false");
         return;
       }

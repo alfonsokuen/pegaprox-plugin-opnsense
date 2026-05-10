@@ -1,6 +1,6 @@
 {
     "name": "OPNsense Manager",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "author": "IDKMANAGER",
     "description": "Monitor and configure OPNsense firewalls (HA-aware) from PegaProx. Interfaces, gateways, rules, aliases, NAT, DHCP, Unbound and WireGuard.",
     "min_pegaprox": "0.9.9.3",

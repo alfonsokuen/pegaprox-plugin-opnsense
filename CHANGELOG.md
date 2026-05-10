@@ -4,11 +4,30 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.5+)
-- DHCP static mappings + Unbound host/domain overrides + WireGuard peer CRUD (same pattern as NAT/Aliases/Rules).
+### Planned (v1.6+)
+- DHCP static mappings — needs Kea or ISC service running on lab (currently neither; `searchReservation` 000 timeout, `/api/dhcpv4/...` 404).
 - 1:1 NAT and port-forward (rdr) writers — endpoints `/api/firewall/one_to_one/*` confirmed in lab.
+- Domain overrides for Unbound (sibling of host overrides).
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
+
+## [1.5.0] — 2026-05-10
+
+### Added
+- **UnboundWriter** — host-override CRUD against `/api/unbound/settings/{addHostOverride,delHostOverride,searchHostOverride}` + `/api/unbound/service/reconfigure`. Same lifecycle as NatWriter (validate → POST → reconfigure → audit; rollback on apply fail).
+- **WireguardPeerWriter** — peer (OPNsense calls them "client") CRUD against `/api/wireguard/client/{addClient,delClient,searchClient}` + `/api/wireguard/service/reconfigure`. Validates pubkey is 44-char base64 and tunneladdress is CIDR.
+- **`/api/plugins/opnsense/api/unbound`** — GET lists host overrides; POST `{action: "create"|"delete"}` writes (refuses with HTTP 403 when read_only).
+- **`/api/plugins/opnsense/api/wg`** — same shape for WG peers.
+- **DNS tab** in dashboard UI — form (hostname / domain / server / RR / description) + table with per-row delete.
+- **WG peers tab** in dashboard UI — form (name / pubkey / tunneladdress / keepalive / psk) + table with per-row delete.
+- **Generic `crudForm` + `crudTable` UI helpers** to avoid duplicating the NAT-tab pattern. NAT tab keeps its custom builders for backwards compat; future tabs can use the helpers.
+- 7 tabs total: Overview / Network / VPN / Logs / NAT / **DNS** / **WG peers**.
+
+### Verified
+- Live round-trip on lab via socat proxy (LXC 119 → 190.160.10.250:8443 → 192.168.1.1:443):
+  - `unbound/addHostOverride` → uuid `30673a96-...` → `delHostOverride` → deleted ✅
+  - `wireguard/client/addClient` → uuid `bfff4882-...` → `delClient` → deleted ✅
+- 15 new unit tests (test_unbound_wg_unit.py) cover payload shape, validation, rollback path, list/action routes, read-only refusal. Suite total: **113 unit tests passing**.
 
 ## [1.4.1] — 2026-05-10
 
