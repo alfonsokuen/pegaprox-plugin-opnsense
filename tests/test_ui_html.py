@@ -75,6 +75,9 @@ def test_html_uses_pegaprox_design_tokens():
         "--card: #1a1d27",
         "--border: #2a2d3a",
         "--text: #e4e4e7",
+        # --muted is bumped to zinc-400 (#a1a1aa) over PegaProx's #71717a so
+        # body text on --card clears WCAG AA contrast (4.5:1).
+        "--muted: #a1a1aa",
         "--green: #22c55e",
         "--red: #ef4444",
         "--yellow: #eab308",

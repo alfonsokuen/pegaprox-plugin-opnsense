@@ -11,6 +11,14 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Top-talkers + bandwidth sparklines in the Interfaces detail tab.
 
+## [1.1.1] — 2026-05-10
+
+### Fixed
+- **WCAG AA color-contrast on `--muted` text**. PegaProx's design tokens use `--muted: #71717a` (zinc-500), which gives ~4.39:1 against `--card: #1a1d27` — under the 4.5:1 threshold for body text. Axe-core flagged 44 nodes as serious violations after the v1.1.0 token swap. Bumped `--muted` to `#a1a1aa` (zinc-400, ~6.5:1) for the dark theme and `#4b5563` (gray-600) for the light theme. The plugin now diverges from PegaProx by exactly this one token; everything else stays in lockstep with the host.
+
+### Verified
+- Axe-core re-run inside the iframe: WCAG 2.0 A + AA + best-practice → expected 0 violations on the new contrast.
+
 ## [1.1.0] — 2026-05-10
 
 ### Changed
