@@ -11,6 +11,18 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Top-talkers + bandwidth sparklines in the Interfaces detail tab.
 
+## [1.0.1] — 2026-05-10
+
+### Fixed
+- **Plugin loader compatibility with PegaProx 0.9.9.3**. Initial v1.0.0 attempted to use `register_plugin_route` as a Flask-style decorator with `methods=['GET']`; the PegaProx API is `register_plugin_route(plugin_id, short_path, handler)` where the handler is a callable and the path is auto-prefixed to `/api/plugins/<id>/api/<path>`. Plugin failed to load with `register() takes 0 positional arguments but 1 was given`. Rewrote the entry point to:
+  - accept `register(app=None)` (PegaProx passes the Flask app),
+  - register four bare paths (`health`, `ui`, `overview`, `metrics`) via the proper 3-arg API,
+  - return dict / `send_file` / `Response` per route as PegaProx expects.
+- Side benefit: `metrics` is now reachable at `/api/plugins/opnsense/api/metrics` (PegaProx rejects routes outside the `/api/<id>/api/...` namespace, which was why the previous `/metrics` returned 404).
+
+### Verified
+- Live deploy on PegaProx 0.9.9.3 LXC 119 (pve1). Plugin tab loads, `/api/health` returns the dict, `/api/overview` returns the snapshot from the lab, `/api/metrics` emits Prometheus text format with the expected metric families.
+
 ## [1.0.0] — 2026-05-10
 
 First production release. Aggregates v0.1.0 → v0.7.0 with documentation polish.

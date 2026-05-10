@@ -90,65 +90,85 @@ def _first_host_from_config():
 # ---------------------------------------------------------------------------
 # Plugin registration entry point
 # ---------------------------------------------------------------------------
-# PegaProx 0.9.9.3+ calls register() on plugin load. Routes are scaffold
-# stubs — real handlers land in src/routes/ and are wired here in v1.0.0.
+# PegaProx 0.9.9.3+ calls `register(app)` on plugin load and expects
+# `register_plugin_route(plugin_id, short_path, handler)` calls. Paths are
+# auto-prefixed to /api/plugins/<id>/api/<path>. Auth is enforced
+# upstream (plugins.view permission).
 
-def register():
+# ---- handlers (no-arg callables) -------------------------------------------
+
+def _h_health():
+    cfg = _load_config()
+    return {
+        'plugin': PLUGIN_ID,
+        'version': '1.0.1',
+        'configured': bool(cfg.get('opnsense_hosts')),
+        'read_only': cfg.get('read_only', False),
+    }
+
+
+def _h_ui():
+    from flask import send_file
+    return send_file(os.path.join(PLUGIN_DIR, 'opnsense.html'),
+                     mimetype='text/html')
+
+
+def _h_overview():
+    from flask import jsonify
+    from src.routes import build_overview_payload
+    host = _first_host_from_config()
+    if host is None:
+        return jsonify({'ok': False, 'error': 'unconfigured',
+                        'detail': 'No opnsense_hosts in config.json — '
+                                  'edit /opt/PegaProx/plugins/opnsense/config.json'}), 400
+    status, payload = build_overview_payload(host)
+    return jsonify(payload), status
+
+
+def _h_metrics():
+    from flask import Response
+    from src.client import OPNsenseClient
+    from src.metrics import render_metrics
+    host = _first_host_from_config()
+    if host is None:
+        return Response(
+            "# opnsense plugin: no opnsense_hosts configured\n"
+            "opnsense_up{host=\"unknown\"} 0\n",
+            mimetype="text/plain; version=0.0.4",
+        )
+    try:
+        body = render_metrics(OPNsenseClient(host), host_label=host.name)
+    except Exception as e:
+        body = (f"# opnsense plugin: render_metrics failed: {e}\n"
+                f"opnsense_up{{host=\"{host.name}\"}} 0\n")
+    return Response(body, mimetype="text/plain; version=0.0.4")
+
+
+def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
+    """Called by PegaProx 0.9.9.3+ when the plugin is enabled.
+
+    Accepts the Flask `app` for forward compatibility but doesn't use it
+    today; everything goes through `register_plugin_route`.
+    """
     if register_plugin_route is None:
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.0.0 loading', PLUGIN_NAME)
+    log.info('%s v1.0.1 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
-    from flask import jsonify  # local import to keep top-level test-safe
-    from src.routes import build_overview_payload  # noqa: WPS433 — host-only
+    routes = {
+        # short path → handler. PegaProx auto-prefixes to
+        # /api/plugins/opnsense/api/<path>
+        'health': _h_health,
+        'ui': _h_ui,
+        'overview': _h_overview,
+        'metrics': _h_metrics,
+    }
+    for path, handler in routes.items():
+        register_plugin_route(PLUGIN_ID, path, handler)
 
-    @register_plugin_route(PLUGIN_ID, '/api/health', methods=['GET'])
-    def _health():
-        cfg = _load_config()
-        return jsonify({
-            'plugin': PLUGIN_ID,
-            'version': '1.0.0',
-            'configured': bool(cfg.get('opnsense_hosts')),
-            'read_only': cfg.get('read_only', False),
-        })
-
-    @register_plugin_route(PLUGIN_ID, '/api/ui', methods=['GET'])
-    def _ui():
-        from flask import send_file
-        return send_file(os.path.join(PLUGIN_DIR, 'opnsense.html'))
-
-    @register_plugin_route(PLUGIN_ID, '/api/overview', methods=['GET'])
-    def _overview():
-        host = _first_host_from_config()
-        if host is None:
-            return jsonify({'ok': False, 'error': 'unconfigured',
-                            'detail': 'No opnsense_hosts in config.json — '
-                                      'edit it via Settings tab.'}), 400
-        status, payload = build_overview_payload(host)
-        return jsonify(payload), status
-
-    @register_plugin_route(PLUGIN_ID, '/metrics', methods=['GET'])
-    def _metrics():
-        from flask import Response
-        from src.client import OPNsenseClient
-        from src.metrics import render_metrics
-        host = _first_host_from_config()
-        if host is None:
-            return Response(
-                "# opnsense plugin: no opnsense_hosts configured\n"
-                "opnsense_up{host=\"unknown\"} 0\n",
-                mimetype="text/plain; version=0.0.4",
-            )
-        try:
-            body = render_metrics(OPNsenseClient(host), host_label=host.name)
-        except Exception as e:
-            body = (f"# opnsense plugin: render_metrics failed: {e}\n"
-                    f"opnsense_up{{host=\"{host.name}\"}} 0\n")
-        return Response(body, mimetype="text/plain; version=0.0.4")
-
-    log.info('%s registered', PLUGIN_NAME)
+    log.info('%s registered (%d routes)', PLUGIN_NAME, len(routes))
 
 
 def unregister():
