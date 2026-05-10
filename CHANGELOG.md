@@ -13,7 +13,7 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 ## [1.6.0] — 2026-05-10
 
 ### Added
-- **UnboundDomainWriter** — domain-override CRUD against `/api/unbound/settings/{addDomainOverride,delDomainOverride,searchDomainOverride}` + `/api/unbound/service/reconfigure`. Same lifecycle as `UnboundWriter`. Validates domain is a fully-qualified zone (must contain a dot) and server IP is non-empty.
+- **UnboundDomainWriter** — domain-override CRUD against `/api/unbound/settings/{addForward,delForward,searchForward}` + `/api/unbound/service/reconfigure`. OPNsense 26.x renamed the endpoints (older docs still call these "DomainOverride" — the rename merges plain forwards and DoT into one endpoint discriminated by `type`). Payload root is `dot` with `type=forward` pinned. List filters out DoT rows so the DNS tab shows only plain forwards. Same lifecycle as `UnboundWriter`. Validates domain is a fully-qualified zone (must contain a dot) and server IP is non-empty.
 - **`/api/plugins/opnsense/api/unbound_domains`** — GET lists domain overrides; POST `{action: "create"|"delete"}` writes (refuses with HTTP 403 when read_only).
 - **DNS tab now hosts both** sub-sections — host overrides (v1.5.0) on top, domain overrides below — driven by the same `crudForm`/`crudTable` helpers. Single tab refresh fans out to both endpoints in parallel via `Promise.all`.
 

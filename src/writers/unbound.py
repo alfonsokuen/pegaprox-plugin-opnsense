@@ -151,6 +151,13 @@ class UnboundWriter:
 
 @dataclass(frozen=True)
 class UnboundDomainInput:
+    """Domain override (Unbound forward zone).
+
+    OPNsense 26.x renamed the API: what older docs call a "domain override"
+    is now `addForward` / `searchForward` with payload root `dot` and a
+    `type` discriminator (`forward` | `dot` for plain vs DNS-over-TLS).
+    We pin `type=forward` here because DoT belongs in a separate tab.
+    """
     domain: str             # e.g. "internal.lab.local"
     server: str             # IPv4/IPv6 of the resolver to forward to
     description: str = ""
@@ -158,8 +165,9 @@ class UnboundDomainInput:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "domain": {
+            "dot": {
                 "enabled": "1" if self.enabled else "0",
+                "type": "forward",
                 "domain": self.domain,
                 "server": self.server,
                 "description": self.description,
@@ -187,17 +195,19 @@ class UnboundDomainWriter:
 
     def search(self, phrase: str = "") -> list[dict[str, Any]]:
         params = {"searchPhrase": phrase} if phrase else {}
-        out = self.client.get(f"{self.BASE}/searchDomainOverride", **params)
-        return out.get("rows", []) if isinstance(out, dict) else []
+        out = self.client.get(f"{self.BASE}/searchForward", **params)
+        rows = out.get("rows", []) if isinstance(out, dict) else []
+        # The Forward endpoint also returns DoT entries; filter them out.
+        return [r for r in rows if r.get("type") in ("forward", "Forward")]
 
     def get(self, uuid: str) -> dict[str, Any]:
-        return self.client.get(f"{self.BASE}/getDomainOverride/{uuid}")
+        return self.client.get(f"{self.BASE}/getForward/{uuid}")
 
     def create(self, payload: UnboundDomainInput) -> UnboundResult:
         self._validate(payload)
         with TimedAction() as t:
             try:
-                resp = self.client.post(f"{self.BASE}/addDomainOverride", payload.to_payload())
+                resp = self.client.post(f"{self.BASE}/addForward", payload.to_payload())
             except OPNsenseError as e:
                 self._record("unbound_domain.create", payload.domain or "?", "error", t, str(e))
                 return UnboundResult(ok=False, detail=str(e))
@@ -209,7 +219,7 @@ class UnboundDomainWriter:
                 self._apply()
             except OPNsenseError as e:
                 try:
-                    self.client.post(f"{self.BASE}/delDomainOverride/{uuid}", {})
+                    self.client.post(f"{self.BASE}/delForward/{uuid}", {})
                 except OPNsenseError:
                     pass
                 self._record("unbound_domain.create", payload.domain, "error", t, f"apply failed → rolled back: {e}")
@@ -221,7 +231,7 @@ class UnboundDomainWriter:
     def delete(self, uuid: str) -> UnboundResult:
         with TimedAction() as t:
             try:
-                self.client.post(f"{self.BASE}/delDomainOverride/{uuid}", {})
+                self.client.post(f"{self.BASE}/delForward/{uuid}", {})
                 self._apply()
             except OPNsenseError as e:
                 self._record("unbound_domain.delete", uuid, "error", t, str(e))
@@ -244,7 +254,7 @@ class UnboundDomainWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchDomainOverride")
+        return self.ha.verify(f"{self.BASE}/searchForward")
 
     def _record(
         self, action: str, target: str, result: str,

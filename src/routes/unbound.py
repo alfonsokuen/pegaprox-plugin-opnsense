@@ -111,8 +111,10 @@ def build_unbound_action_payload(
 def build_unbound_domain_list_payload(host: OPNsenseHost) -> tuple[int, dict[str, Any]]:
     client = OPNsenseClient(host)
     try:
-        out = client.get("/api/unbound/settings/searchDomainOverride")
+        out = client.get("/api/unbound/settings/searchForward")
         rows = out.get("rows", []) if isinstance(out, dict) else []
+        # Forward endpoint co-locates DoT entries; show only plain forwards.
+        rows = [r for r in rows if str(r.get("type", "forward")).lower() == "forward"]
         return 200, {"ok": True, "data": {"domains": rows, "total": len(rows)}}
     except OPNsenseAuthError as e:
         return 401, {"ok": False, "error": "auth", "detail": str(e)}
