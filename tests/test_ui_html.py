@@ -137,6 +137,13 @@ def test_html_uses_per_tab_endpoints():
         assert ep in body, f"missing endpoint reference: {ep}"
 
 
+def test_html_drilldown_loads_recent_firewall_events():
+    body = _content()
+    # v1.3.1 — drilldown lazy-loads firewall events filtered by iface.
+    assert "fetchLogsForIface" in body
+    assert "appendLogsCard" in body
+
+
 def test_html_has_drilldown_dialog():
     body = _content()
     # Native <dialog> for accessible per-iface modal.

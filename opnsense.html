@@ -1252,7 +1252,53 @@
     return svg;
   }
 
-  function openDrilldown(name) {
+  async function fetchLogsForIface(name, limit = 200) {
+    try {
+      const data = await fetchJson(ENDPOINTS.logs + "?limit=" + limit);
+      return (data.entries || []).filter(r => r.interface === name);
+    } catch {
+      return null; // signal failure
+    }
+  }
+
+  function appendLogsCard(body, name, entries) {
+    const card = el("section", { class: "card", style: "padding: 12px; margin-top: 12px;" }, [
+      el("p", { class: "title", text: `[ eventos firewall recientes en ${escapeText(name)} ]` }),
+    ]);
+    if (entries == null) {
+      card.appendChild(el("div", { class: "dl-empty", text: "No se pudieron cargar los eventos del firewall." }));
+      body.appendChild(card);
+      return;
+    }
+    if (!entries.length) {
+      card.appendChild(el("div", { class: "dl-empty", text: "Sin eventos recientes en esta interfaz." }));
+      body.appendChild(card);
+      return;
+    }
+    const t = document.createElement("table");
+    t.className = "tt";
+    t.innerHTML = `<thead><tr><th>Time</th><th>Acción</th><th>Dir</th><th>Src</th><th>Dst</th><th>Proto</th></tr></thead><tbody></tbody>`;
+    const tb = $("tbody", t);
+    const cls = (a) => a === "pass" ? "badge-green" : a === "block" ? "badge-red" : a === "rdr" || a === "nat" ? "badge-blue" : "badge-muted";
+    for (const r of entries.slice(0, 30)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="dim mono">${escapeText(r.timestamp)}</td>
+        <td><span class="badge ${cls(r.action)}">${escapeText(r.action)}</span></td>
+        <td class="dim">${escapeText(r.direction)}</td>
+        <td class="mono">${escapeText(r.src)}</td>
+        <td class="mono">${escapeText(r.dst)}</td>
+        <td class="dim">${escapeText(r.protocol)}</td>`;
+      tb.appendChild(tr);
+    }
+    card.appendChild(t);
+    if (entries.length > 30) {
+      card.appendChild(el("div", { class: "sub", text: `Mostrando 30 de ${entries.length} eventos.` }));
+    }
+    body.appendChild(card);
+  }
+
+  async function openDrilldown(name) {
     const dlg = $("#drilldown");
     const body = $("#dl-body");
     const title = $("#dl-title");
@@ -1308,6 +1354,21 @@
       } else {
         body.appendChild(el("div", { class: "dl-empty", text: "Sin vecinos descubiertos en esta interfaz (o tab Network aún no consultada)." }));
       }
+
+      // Lazy load firewall events for this iface (skeleton first, then table).
+      const logsCard = el("section", { class: "card", style: "padding: 12px; margin-top: 12px;" }, [
+        el("p", { class: "title", text: `[ eventos firewall recientes en ${escapeText(name)} ]` }),
+        el("div", { class: "skeleton lg", role: "presentation", style: "margin-top:8px;" }),
+        el("div", { class: "skeleton", role: "presentation", style: "margin-top:6px; width: 90%;" }),
+        el("div", { class: "skeleton", role: "presentation", style: "margin-top:6px; width: 80%;" }),
+      ]);
+      body.appendChild(logsCard);
+      fetchLogsForIface(name).then(entries => {
+        // Only swap if this dialog is still showing the same iface.
+        if (!dlg.open || title.textContent.indexOf(name) === -1) return;
+        logsCard.remove();
+        appendLogsCard(body, name, entries);
+      });
     }
     dlg.showModal();
   }

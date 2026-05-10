@@ -10,6 +10,14 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - IP-flow-level sessions snapshot in drilldown (uses `/api/diagnostics/firewall/states`).
 
+## [1.3.1] — 2026-05-10
+
+### Added
+- **Recent firewall events in the drilldown panel**. The per-iface modal now lazy-loads up to 30 recent log entries filtered to that interface (action badge: pass/block/rdr/nat, time, dir, src, dst, proto). Skeleton placeholder while fetching.
+
+### Notes
+- Originally planned as live pf-states snapshot, but OPNsense 26.1.2 does not expose `/api/diagnostics/firewall/{list_pf_states,searchPfStates,states,...}` endpoints (verified — all 404 against the lab). Firewall log filtered by iface is the closest read-only signal available via API.
+
 ## [1.3.0] — 2026-05-10
 
 ### Added
