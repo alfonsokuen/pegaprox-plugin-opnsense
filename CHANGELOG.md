@@ -12,6 +12,24 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - UI built through the Pro Max chain (industrial-brutalist style)
 - Playwright e2e against OPNsense lab
 
+## [0.4.0] — 2026-05-10
+
+### Added
+- **HA collector** (`collect_hasync`) — collapses OPNsense option-group dicts (`{value, selected}`) to plain values. Surfaces `enabled`, `pfsync_interface`, `pfsync_peer_ip`, `pfsync_version`, `sync_to_ip`, `sync_compatibility`, `sync_disable_preempt`, `sync_disconnect_ppps`.
+- **Routing/neighbor collectors** (`collect_routes`, `collect_arp`, `collect_ndp`) — system route table + IPv4/IPv6 neighbor caches with manufacturer + interface description.
+- **Firewall log tail** (`collect_firewall_log(limit=N)`) — projects 10 useful fields out of OPNsense's 26-field rows. Defaults to 100 entries; uses query-string limit so the full bulky payload stays on the wire.
+- **VPN collectors** (`collect_wireguard`, `collect_ipsec`, `collect_openvpn`, plus aggregator `collect_vpn`) — uniform `VPNPeer` shape across the three engines, retains raw OPNsense row for UI deep-dive.
+- **Fixtures** added (8 new): `getRoutes`, `getArp`, `getNdp`, `firewall_log` (slimmed to 5 entries), `firewall_log_filters`, `ipsec_searchPhase1`, `openvpn_searchSessions`, `wireguard_general_get`.
+
+### Changed
+- `manifest.json`: 0.3.0 → 0.4.0.
+- `src/collectors/__init__.py`: re-exports new types and functions.
+
+### QA gate
+- `ruff check src tests` → clean.
+- Unit suite: **32 passed, 15 skipped** (live).
+- Live suite (with SOPS-decrypted creds): **15 passed in 12.02s** vs `https://190.160.10.108`.
+
 ## [0.3.0] — 2026-05-10
 
 ### Added

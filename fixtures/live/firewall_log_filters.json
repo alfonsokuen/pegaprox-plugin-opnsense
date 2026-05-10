@@ -1,0 +1,1 @@
+{"action":["pass","block","rdr","nat","binat"],"interface_name":["lan","Loopback","wan"],"dir":["in","out"]}
