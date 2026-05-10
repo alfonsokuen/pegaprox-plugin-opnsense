@@ -10,6 +10,11 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Per-iface drilldown panel (timeseries graph + IP sessions snapshot).
 
+## [1.2.1] — 2026-05-10
+
+### Fixed
+- **a11y regression on Logs tab** — placing `role="tabpanel"` directly on `<main>` overrode the implicit landmark. axe-core flagged `aria-allowed-role`, `landmark-one-main`, and `region`. Wrapped the dynamic panel inside a real `<main>` so the landmark survives while keeping tabpanel semantics on the inner div.
+
 ## [1.2.0] — 2026-05-10
 
 ### Added
