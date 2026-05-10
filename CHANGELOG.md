@@ -10,6 +10,11 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Per-iface drilldown panel (timeseries graph + IP sessions snapshot).
 
+## [1.2.2] — 2026-05-10
+
+### Fixed
+- **Final a11y violation on tablist** — `<nav role="tablist">` overrode the implicit `navigation` landmark, leaving the element outside any landmark on Logs tab. Switched the wrapper to `<div role="tablist">` since the tabs already serve their semantic purpose via tablist + tab roles. axe-core: 0 violations across all 4 tabs.
+
 ## [1.2.1] — 2026-05-10
 
 ### Fixed
