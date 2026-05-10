@@ -4,11 +4,26 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.7+)
+### Planned (v1.8+)
 - DHCP static mappings — needs Kea or ISC service running on lab (currently neither; `searchReservation` 000 timeout, `/api/dhcpv4/...` 404).
-- 1:1 NAT and port-forward (rdr) writers — endpoints `/api/firewall/one_to_one/*` confirmed in lab.
+- DoT entries in DNS tab (third sub-section reusing `addForward` with `type=dot`).
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
+- Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.7.0] — 2026-05-10
+
+### Added
+- **OneToOneNatWriter** — 1:1 NAT (BINAT) CRUD against `/api/firewall/one_to_one/{addRule,delRule,searchRule,getRule}` + `/apply` (note: not `reconfigure`). Same lifecycle as `NatWriter`. Validates interface + external IP/alias + internal source_net required, type ∈ {binat, nat}.
+- **`/api/plugins/opnsense/api/one_to_one`** — GET lists 1:1 rules; POST `{action: "create"|"delete"}` writes (refuses with HTTP 403 when read_only).
+- **NAT tab** now hosts two sub-sections — outbound NAT (v1.4.0) on top, 1:1 BINAT below — fan-out via `Promise.all` on tab refresh. The 1:1 form uses the generic `crudForm`/`crudTable` helpers introduced in v1.5.0.
+
+### Verified
+- 7 new unit tests in `test_one_to_one_unit.py` cover payload shape, validation (4 cases including invalid type), rollback on apply-fail, list/action routes, read-only refusal. Suite total: **127 unit tests passing**, ruff clean.
+- HTML static check `test_html_uses_per_tab_endpoints` extended to require `../api/one_to_one`.
+
+### Out of scope
+- **Port-forwarding (rdr)** — OPNsense 26.1.2 does not expose a REST endpoint for rdr rules. `/api/firewall/forward/*`, `/api/firewall/portfwd/*`, `/api/firewall/nat/*` all return HTTP 404 (verified live). Until upstream ships an API, port-forward stays GUI-only and is not part of this plugin's surface.
 
 ## [1.6.0] — 2026-05-10
 

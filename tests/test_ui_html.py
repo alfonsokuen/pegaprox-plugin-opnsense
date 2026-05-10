@@ -134,7 +134,8 @@ def test_html_has_tablist_with_seven_tabs():
 def test_html_uses_per_tab_endpoints():
     body = _content()
     for ep in ("../api/overview", "../api/network", "../api/logs",
-               "../api/nat", "../api/unbound", "../api/unbound_domains", "../api/wg"):
+               "../api/nat", "../api/one_to_one",
+               "../api/unbound", "../api/unbound_domains", "../api/wg"):
         assert ep in body, f"missing endpoint reference: {ep}"
 
 
@@ -154,6 +155,8 @@ def test_html_has_nat_tab_and_form():
     assert "renderNatTab" in body
     assert "natCreate" in body
     assert "natDelete" in body
+    # v1.7.0 — 1:1 NAT (BINAT) sub-section under NAT tab
+    assert "oneToOneCreate" in body and "oneToOneDelete" in body
 
 
 def test_html_drilldown_loads_recent_firewall_events():

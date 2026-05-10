@@ -110,7 +110,7 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.6.0',
+        'version': '1.7.0',
         'configured': bool(cfg.get('opnsense_hosts')),
         'read_only': cfg.get('read_only', False),
     }
@@ -195,6 +195,27 @@ def _h_unbound():
     return jsonify(payload), status
 
 
+def _h_one_to_one():
+    from flask import jsonify, request
+    from src.routes import (
+        build_one_to_one_action_payload,
+        build_one_to_one_list_payload,
+    )
+    host = _first_host_from_config()
+    if host is None:
+        return _unconfigured_response()
+    if request.method == 'GET':
+        status, payload = build_one_to_one_list_payload(host)
+        return jsonify(payload), status
+    body = request.get_json(silent=True) or {}
+    cfg = _load_config()
+    status, payload = build_one_to_one_action_payload(
+        host, PLUGIN_DIR, body,
+        actor='plugin', read_only=bool(cfg.get('read_only', False)),
+    )
+    return jsonify(payload), status
+
+
 def _h_unbound_domains():
     from flask import jsonify, request
     from src.routes import (
@@ -263,7 +284,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.6.0 loading', PLUGIN_NAME)
+    log.info('%s v1.7.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     routes = {
@@ -275,6 +296,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         'network': _h_network,
         'logs': _h_logs,
         'nat': _h_nat,
+        'one_to_one': _h_one_to_one,
         'unbound': _h_unbound,
         'unbound_domains': _h_unbound_domains,
         'wg': _h_wg,

@@ -727,6 +727,7 @@
     network: "../api/network",
     logs: "../api/logs",
     nat: "../api/nat",
+    oneToOne: "../api/one_to_one",
     unbound: "../api/unbound",
     unboundDomains: "../api/unbound_domains",
     wg: "../api/wg",
@@ -1327,9 +1328,78 @@
     return card;
   }
 
+  // ---------- 1:1 NAT (BINAT) — sub-section under NAT tab ----------
+  let oneToOneRows = [];
+  let oneToOneForm = { interface: "wan", external: "", source_net: "", destination_net: "any", type: "binat", description: "" };
+  let oneToOneError = "", oneToOneBusy = false;
+
+  async function oneToOneList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.oneToOne);
+      oneToOneRows = data.rules || [];
+      oneToOneError = "";
+    } catch (e) { oneToOneRows = []; oneToOneError = e.detail || e.message || "error"; }
+  }
+  async function oneToOneCreate() {
+    oneToOneBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.oneToOne, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", rule: oneToOneForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      oneToOneForm = { interface: "wan", external: "", source_net: "", destination_net: "any", type: "binat", description: "" };
+      oneToOneError = "";
+    } catch (e) { oneToOneError = e.message; }
+    oneToOneBusy = false; await oneToOneList(); renderNatTab();
+  }
+  async function oneToOneDelete(uuid) {
+    if (!confirm(`¿Eliminar regla 1:1 ${uuid.slice(0,8)}…?`)) return;
+    oneToOneBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.oneToOne, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      oneToOneError = "";
+    } catch (e) { oneToOneError = e.message; }
+    oneToOneBusy = false; await oneToOneList(); renderNatTab();
+  }
+
   function renderNatTab() {
     const main = $("#grid");
-    main.replaceChildren(natForm(), natTable());
+    const oneToOneCreateForm = crudForm({
+      titleText: "[ nueva regla 1:1 (BINAT) ]",
+      fields: [
+        { key: "interface", label: "Interface (wan|lan)" },
+        { key: "external", label: "External IP/alias" },
+        { key: "source_net", label: "Internal IP/alias" },
+        { key: "destination_net", label: "Destination (any)" },
+        { key: "type", label: "Tipo (binat|nat)" },
+        { key: "description", label: "Descripción" },
+      ],
+      formState: oneToOneForm, busy: oneToOneBusy, error: oneToOneError, onSubmit: oneToOneCreate,
+    });
+    const oneToOneTable = crudTable({
+      titleText: "reglas 1:1 existentes",
+      rows: oneToOneRows,
+      columns: [
+        { h: "Iface", k: "interface", cls: "dim" },
+        { h: "External", k: "external", cls: "mono" },
+        { h: "Internal", k: "source_net", cls: "mono" },
+        { h: "Destino", k: "destination_net", cls: "mono" },
+        { h: "Tipo", k: "type", cls: "dim" },
+        { h: "Descripción", k: "description" },
+        { h: "Estado", fn: r => (r.enabled === "1" || r.enabled === 1 || r.enabled === true) ? "on" : "off", cls: "dim" },
+      ],
+      onDelete: oneToOneDelete, busy: oneToOneBusy,
+    });
+    main.replaceChildren(natForm(), natTable(), oneToOneCreateForm, oneToOneTable);
     main.setAttribute("aria-busy", "false");
   }
 
@@ -1864,7 +1934,7 @@
     btn.disabled = true;
     try {
       if (cfg.custom && currentTab === "nat") {
-        await natList();
+        await Promise.all([natList(), oneToOneList()]);
         renderNatTab();
         main.setAttribute("aria-busy", "false");
         return;
