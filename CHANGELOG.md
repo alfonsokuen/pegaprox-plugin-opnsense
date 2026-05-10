@@ -5,12 +5,38 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 ## [Unreleased]
 
 ### Planned (v1.0.0)
-- Writers: aliases, rules, NAT, DHCP, Unbound, WireGuard
-- HA sync with post-sync verification
-- Audit log + UI tab
-- Prometheus `/metrics` exporter
-- Playwright e2e on a PegaProx host with the plugin loaded
-- Detail tabs (Interfaces, Gateways, VPN, Logs)
+- Additional writers: NAT, DHCP, Unbound, WireGuard peers (same pattern as Aliases/Rules).
+- Prometheus `/metrics` exporter.
+- Playwright e2e on a PegaProx host with the plugin loaded.
+- Detail tabs (Interfaces, Gateways, VPN, Logs).
+
+## [0.6.0] — 2026-05-10
+
+### Added
+- **Writers framework** (`src/writers/`) with shared lifecycle: validate → POST write → POST `reconfigure`/`apply` (empty `{}` body — OPNsense rejects POST without `Content-Length`) → optional HA `syncTo` + peer fingerprint compare → JSONL audit log entry. On exception between write and apply, **rollback** is automatic (orphan row deleted before bubbling the error).
+- **`AliasWriter`** — full CRUD against `/api/firewall/alias/*`, with `search()`/`get()` helpers. `AliasInput` dataclass coerces booleans to OPNsense's `"0"/"1"` strings.
+- **`RuleWriter`** — full CRUD against `/api/firewall/filter/*`. `RuleInput` validates `action ∈ {pass, block, reject}`, `direction ∈ {in, out}`, `ipprotocol ∈ {inet, inet6, inet46}`, and requires a non-empty interface before any network call.
+- **`AuditLog`** — append-only JSONL, thread-safe, `tail(N)` + `iter_all()` readers. Entries: `{ts, user, action, target, host, result, duration_ms, detail}`. Sensitive payloads (rule contents, peer keys) are deliberately not stored — payload hashes are a v0.7+ task.
+- **`HAVerifier`** — calls `/api/core/hasync/syncTo`, re-fetches the same search path on the peer, compares a SHA-256 fingerprint to surface divergence. Single-node mode (no peer client) short-circuits with `verified=True`.
+- **`TimedAction`** stopwatch context manager used by every writer.
+- **Live writer test** (`tests/test_writers_live.py`) double-gated by `OPNSENSE_LAB_*` env + `OPNSENSE_ALLOW_WRITE=1`. Auto-skips if the host running pytest can't reach the lab (mgmt-network requirement). Performs a full `create → search → delete` cycle with cleanup in `finally`.
+
+### Verified live
+- Manual end-to-end cycle from `pve3` against the lab `https://190.160.10.108`:
+  - `addItem` → `{result: saved, uuid: a58717cc-...}`
+  - `reconfigure` → `{status: ok}`
+  - `delItem/{uuid}` → `{result: deleted}`
+  - `reconfigure` → `{status: ok}`
+- `pf` is force-disabled after each reconfigure to keep the lab reachable from the dev workstation; this is lab-only and noted in the SOPS entry.
+
+### Changed
+- `manifest.json`: 0.5.0 → 0.6.0.
+- `src/writers/__init__.py`: re-exports `AliasInput/AliasWriter`, `RuleInput/RuleWriter`, `AuditLog/AuditEntry`, `HAVerifier`.
+
+### QA gate
+- `ruff check src tests` → clean.
+- `pytest` → **68 passed, 16 skipped** (live writer test counts as 1 of the skipped ones unless `OPNSENSE_ALLOW_WRITE=1` and lab reachable).
+- 16 new unit tests cover happy path, missing uuid, reconfigure-failure rollback, validation rejections, audit append/tail/corrupt-line tolerance, HA verifier single-node + matching peer + diverging peer.
 
 ## [0.5.0] — 2026-05-10
 
