@@ -10,6 +10,11 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Per-iface drilldown panel (timeseries graph + IP sessions snapshot).
 
+## [1.2.4] — 2026-05-10
+
+### Fixed
+- **Rate column WCAG AA contrast** — `.rate .tx` (var(--blue) #3b82f6 on row-hover #21242d) measured 4.21:1 vs 4.5:1 required. Bumped to the same lighter tone used by badges (#93c5fd / blue-300, #4ade80 / green-400) so the inline RX/TX rate text clears AA on both --card and --row-hover. Light theme uses the deeper 700-tones.
+
 ## [1.2.3] — 2026-05-10
 
 ### Fixed
