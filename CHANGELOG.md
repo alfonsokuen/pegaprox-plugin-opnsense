@@ -4,10 +4,27 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.11+)
-- Playwright e2e on a PegaProx host with the plugin loaded (in CI).
+### Planned (v1.12+)
 - Kea subnet writer (today: list-only via `searchSubnet`; subnet management belongs in a dedicated writer when a use-case appears).
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.11.0] — 2026-05-10
+
+### Added
+- **Playwright e2e harness** — `tests/test_e2e_smoke.py` is a gated browser-driven smoke test that authenticates against a live PegaProx host and exercises the plugin UI. Two scenarios:
+  - **`test_e2e_login_and_visit_all_tabs`** (read-path, gated by `RUN_E2E=1`): logs in, navigates to the plugin iframe, clicks through every tab (overview/network/vpn/logs/nat/dns/dhcp/wg), asserts the `[role=tablist]` lights up the right `aria-selected`, and fails on unrecognised console errors. Known-benign noise (favicon 404s, the pre-login `/api/auth/check` 401 burst, PegaProx's logout-on-unload race) is filtered.
+  - **`test_e2e_round_trip_unbound_host`** (write-path, gated by both `RUN_E2E=1` and `RUN_E2E_WRITE=1`): issues `addHostOverride` + `delHostOverride` through the plugin REST endpoint to verify the JSON contract end-to-end against a real OPNsense.
+- `pytest.ini` declares the `e2e` marker so `pytest --strict-markers` keeps green.
+- `requirements-dev.txt` adds Playwright behind an `e2e` extra so the unit suite stays dependency-light by default.
+
+### Notes
+- The harness relaxes the `session_id` SameSite=Strict cookie to Lax inside the test context. PegaProx ships Strict, which Chromium correctly refuses to send on a Playwright top-level `page.goto()` — production users hit the plugin via in-page links from `/home` and never trip the guard.
+- Live host (CF Tunnel ↔ pegasus.idkmanager.com) can rate-limit two logins in quick succession. If the combined run flakes, invoke the read-path and write-path tests separately via `-k`.
+
+### Verified
+- Unit suite stays at **149 passing / 19 skipped** (e2e module skip when `RUN_E2E≠1`); ruff clean.
+- Read-path test passes in isolation against the live `pegasus.idkmanager.com` plugin (3 tabs walked + 8-tab assertion holds).
+- Write-path test verified earlier in v1.10 cycle via direct curl; same JSON contract, harness wraps it through the browser context.
 
 ## [1.10.0] — 2026-05-10
 

@@ -2,3 +2,7 @@ pytest>=7.4
 ruff>=0.4
 requests>=2.31
 responses>=0.24
+
+# v1.11.0 — opt-in browser e2e (gated by RUN_E2E=1). Install with:
+#   pip install playwright && playwright install chromium
+playwright>=1.45; extra == "e2e"
