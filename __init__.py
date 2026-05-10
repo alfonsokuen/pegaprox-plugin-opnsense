@@ -24,10 +24,15 @@ import json
 import logging
 import threading
 
-from flask import request, jsonify
-
-from pegaprox.api.plugins import register_plugin_route
-from pegaprox.utils.audit import log_audit
+# These imports only resolve inside a PegaProx host. Guard them so the
+# package can still be imported in unit-test / linting contexts without
+# pulling in PegaProx internals.
+try:  # pragma: no cover - exercised only on PegaProx hosts
+    from flask import request, jsonify  # noqa: F401
+    from pegaprox.api.plugins import register_plugin_route
+    from pegaprox.utils.audit import log_audit  # noqa: F401
+except ImportError:  # pragma: no cover
+    register_plugin_route = None  # type: ignore[assignment]
 
 PLUGIN_ID = 'opnsense'
 PLUGIN_NAME = 'OPNsense Manager'
@@ -68,8 +73,14 @@ def _load_config():
 # stubs — real handlers land in src/routes/ and are wired here in v1.0.0.
 
 def register():
-    log.info('%s v0.1.0 (scaffold) loading', PLUGIN_NAME)
+    if register_plugin_route is None:
+        raise RuntimeError(
+            'PegaProx framework not available — register() must run inside a PegaProx host'
+        )
+    log.info('%s v0.2.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
+
+    from flask import jsonify  # local import to keep top-level test-safe
 
     @register_plugin_route(PLUGIN_ID, '/api/health', methods=['GET'])
     def _health():
