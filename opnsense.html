@@ -1,25 +1,597 @@
-<!DOCTYPE html>
-<html lang="es">
+<!doctype html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OPNsense Manager — PegaProx</title>
-    <style>
-        :root { color-scheme: dark light; font-family: ui-monospace, SF Mono, Menlo, monospace; }
-        body { margin: 0; padding: 1.5rem; background: #0b0d10; color: #e7eaee; }
-        h1 { font-weight: 700; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
-        .scaffold { border: 1px dashed #3a4048; padding: 2rem; border-radius: 6px; }
-        .scaffold p { margin: 0 0 0.75rem; color: #aab2bd; }
-        code { background: #14181d; padding: 2px 6px; border-radius: 3px; }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>OPNsense Manager — PegaProx</title>
+<style>
+  /* =========================================================================
+     OPNsense Manager — Tactical Telemetry style
+     Dark CRT phosphor palette, monospace + heavy sans, hard 90deg corners,
+     1px grid dividers, no glassmorphism, no gradients, no border-radius.
+     ========================================================================= */
+  :root {
+    --bg: #0a0a0a;
+    --bg-cell: #111111;
+    --bg-hover: #161616;
+    --rule: #2a2a2a;
+    --rule-strong: #3d3d3d;
+    --fg: #eaeaea;
+    --fg-dim: #8a8a8a;
+    --fg-mute: #5e5e5e;
+    --red: #e61919;
+    --red-dim: #6b1111;
+    --green: #4af626;
+    --amber: #d99923;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --font-mono: ui-monospace, "JetBrains Mono", "IBM Plex Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+    --font-sans: ui-sans-serif, "Helvetica Neue", "Arial Black", system-ui, sans-serif;
+    --t-fast: 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.45;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Root layout — single column with header strip + main grid -------------- */
+  .app {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 100dvh;
+  }
+
+  /* Header strip ---------------------------------------------------------- */
+  header.bar {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--rule-strong);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  header.bar .brand {
+    font-family: var(--font-sans);
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+  }
+  header.bar .brand span.tag {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    font-size: 11px;
+    color: var(--fg-dim);
+    margin-left: var(--space-3);
+    letter-spacing: 0.12em;
+  }
+  header.bar .conn {
+    font-size: 11px;
+    color: var(--fg-dim);
+  }
+  header.bar .conn b {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  header.bar button.refresh {
+    appearance: none;
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--rule-strong);
+    padding: 6px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background var(--t-fast), border-color var(--t-fast);
+  }
+  header.bar button.refresh:hover { background: var(--bg-hover); }
+  header.bar button.refresh:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  header.bar button.refresh:active { transform: translateY(1px); }
+  header.bar button.refresh[aria-busy="true"] { color: var(--fg-mute); border-color: var(--rule); }
+
+  /* Main grid ------------------------------------------------------------ */
+  main.grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-auto-rows: minmax(96px, auto);
+    gap: 1px;
+    background: var(--rule);
+    padding: 1px;
+  }
+
+  section.cell {
+    background: var(--bg-cell);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  section.cell h2 {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin: 0;
+  }
+  section.cell .lead {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: clamp(28px, 3.2vw, 44px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin: 0;
+    word-break: break-word;
+  }
+  section.cell .lead.mono {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: clamp(22px, 2.4vw, 32px);
+    letter-spacing: -0.01em;
+  }
+  section.cell .sub {
+    font-size: 11px;
+    color: var(--fg-dim);
+    letter-spacing: 0.04em;
+  }
+
+  /* Span widths for each card -------------------------------------------- */
+  .span-3 { grid-column: span 3; }
+  .span-4 { grid-column: span 4; }
+  .span-6 { grid-column: span 6; }
+  .span-8 { grid-column: span 8; }
+  .span-12 { grid-column: span 12; }
+
+  /* Status chips --------------------------------------------------------- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--rule-strong);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg);
+    background: var(--bg);
+  }
+  .chip::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    background: var(--fg-mute);
+    display: inline-block;
+  }
+  .chip.ok    { color: var(--fg); border-color: #1f3814; }
+  .chip.ok::before    { background: var(--green); }
+  .chip.warn  { color: #f5d590; border-color: #4a3617; }
+  .chip.warn::before  { background: var(--amber); }
+  .chip.error { color: #ffb3b3; border-color: #4a1414; }
+  .chip.error::before { background: var(--red); }
+
+  /* Tables --------------------------------------------------------------- */
+  table.tt {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.tt th, table.tt td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+  table.tt th {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-weight: 500;
+    border-bottom-color: var(--rule-strong);
+    background: var(--bg);
+  }
+  table.tt tbody tr:hover { background: var(--bg-hover); }
+  table.tt td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.tt td.dim { color: var(--fg-dim); }
+
+  /* Specific subsections ------------------------------------------------- */
+  .section-title {
+    grid-column: 1 / -1;
+    background: var(--bg);
+    padding: var(--space-3) var(--space-5);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    border-bottom: 1px solid var(--rule);
+  }
+  .section-title b { color: var(--fg); font-weight: 600; }
+
+  .meter {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+  .meter .bar {
+    grid-column: 1 / -1;
+    height: 4px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    overflow: hidden;
+  }
+  .meter .bar > i {
+    display: block;
+    height: 100%;
+    background: var(--fg);
+    transition: width var(--t-fast);
+  }
+  .meter.high .bar > i { background: var(--amber); }
+  .meter.crit .bar > i { background: var(--red); }
+
+  /* Empty / error overlay ------------------------------------------------- */
+  .banner {
+    grid-column: 1 / -1;
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--red-dim);
+    background: var(--bg-cell);
+    color: #ffb3b3;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .banner.dim { border-color: var(--rule-strong); color: var(--fg-dim); }
+  .banner b { color: var(--fg); font-weight: 600; }
+
+  /* Skeletons ------------------------------------------------------------ */
+  .skeleton {
+    background: linear-gradient(90deg, var(--rule) 0%, var(--rule-strong) 50%, var(--rule) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+    height: 14px;
+    width: 100%;
+  }
+  .skeleton.lg { height: 28px; }
+  .skeleton.xl { height: 44px; width: 70%; }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+    *, *::before, *::after { transition: none !important; }
+  }
+
+  /* Responsive (1024 / 768) ---------------------------------------------- */
+  @media (max-width: 1280px) {
+    .span-3 { grid-column: span 4; }
+    .span-4 { grid-column: span 6; }
+  }
+  @media (max-width: 1024px) {
+    main.grid { grid-template-columns: repeat(6, 1fr); }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 6; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 6; }
+  }
+  @media (max-width: 768px) {
+    main.grid { grid-template-columns: 1fr; }
+    .span-3, .span-4, .span-6, .span-8 { grid-column: span 1; }
+    section.cell .lead { font-size: 28px; }
+    header.bar { grid-template-columns: 1fr auto; gap: var(--space-3); }
+    header.bar .conn { display: none; }
+  }
+
+  /* Visually hidden (a11y) ----------------------------------------------- */
+  .vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
 </head>
 <body>
-    <h1>OPNsense Manager</h1>
-    <p style="color:#8a939e;margin:0 0 1.5rem;">v0.1.0 — scaffold</p>
-    <div class="scaffold">
-        <p><strong>Plugin scaffold cargado.</strong> La UI real (overview, interfaces, gateways, VPN, reglas, audit) se construye en <code>src/ui/</code> siguiendo la cadena UI Pro Max + estilo <code>industrial-brutalist-ui</code>.</p>
-        <p>Estado: <code>GET /api/plugins/opnsense/api/health</code></p>
-        <p>Brief operativo: <code>PEGAPROX_PLUGIN_OPNSENSE_BRIEF.md</code> en el workspace.</p>
+<div class="app">
+  <header class="bar" role="banner">
+    <div class="brand">
+      OPNsense <span class="tag">/// PEGAPROX MANAGER ///</span>
     </div>
+    <div class="conn" id="conn" aria-live="polite">
+      <b id="conn-host">—</b> &nbsp; <span id="conn-version" class="vh">unknown</span>
+    </div>
+    <button class="refresh" type="button" id="btn-refresh" aria-label="Refresh overview">
+      Refresh
+    </button>
+  </header>
+
+  <main id="grid" class="grid" aria-busy="true">
+    <!-- Skeleton placeholder; replaced after first fetch -->
+    <section class="cell span-12" aria-label="Loading">
+      <h2>System</h2>
+      <div class="skeleton xl" role="presentation"></div>
+      <div class="skeleton lg" role="presentation"></div>
+    </section>
+  </main>
+</div>
+
+<script type="module">
+  // ============================================================ utilities
+  const $ = (s, r=document) => r.querySelector(s);
+  const el = (tag, attrs={}, children=[]) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") n.className = v;
+      else if (k === "html") n.innerHTML = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("data-")) n.setAttribute(k, v);
+      else if (k.startsWith("aria-") || k === "role") n.setAttribute(k, v);
+      else n[k] = v;
+    }
+    for (const c of (Array.isArray(children) ? children : [children])) {
+      if (c == null) continue;
+      n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    }
+    return n;
+  };
+  const fmtBytes = (n) => {
+    if (!n || n < 0) return "0 B";
+    const u = ["B","KB","MB","GB","TB","PB"];
+    let i = 0, v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${u[i]}`;
+  };
+  const pct = (a, b) => (b ? Math.min(100, (a / b) * 100) : 0);
+  const meterClass = (p) => p > 85 ? "crit" : p > 65 ? "high" : "";
+  const escapeText = (s) => String(s ?? "").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+
+  // ============================================================ fetch
+  const ENDPOINT = "../api/overview"; // resolves under /api/plugins/opnsense/api/overview
+  async function fetchOverview() {
+    const r = await fetch(ENDPOINT, { credentials: "same-origin" });
+    if (r.status === 401) throw Object.assign(new Error("auth"), { kind: "auth" });
+    if (!r.ok) {
+      let detail = "";
+      try { detail = (await r.json()).detail || ""; } catch {}
+      throw Object.assign(new Error(`HTTP ${r.status}`), { kind: "upstream", detail });
+    }
+    const body = await r.json();
+    if (!body.ok) throw Object.assign(new Error(body.error || "upstream"), { kind: body.error || "upstream", detail: body.detail });
+    return body.data;
+  }
+
+  // ============================================================ renderers
+  function renderHeader(data) {
+    $("#conn-host").textContent = data?.system?.name || "—";
+    const versions = (data?.system?.versions || []).join(" · ");
+    $("#conn-version").textContent = versions;
+    $("#conn").title = versions;
+  }
+
+  function cellSystem(s) {
+    const memPct = s.memory_used_pct || 0;
+    const pfPct = s.pf_states_pct || 0;
+    return el("section", { class: "cell span-4", "aria-label": "System" }, [
+      el("h2", {}, "[ SYSTEM ]"),
+      el("p", { class: "lead" }, s.name || "—"),
+      el("div", { class: "sub", html: `${(s.versions || []).map(escapeText).join(" / ") || "version unknown"}` }),
+      el("div", { class: "meter " + meterClass(memPct) }, [
+        el("span", { text: "MEM " + (s.memory_used_mb || 0) + "/" + (s.memory_total_mb || 0) + "MB" }),
+        el("span", { text: memPct.toFixed(1) + "%", class: "num" }),
+        el("span", { class: "bar" }, [el("i", { style: `width:${memPct}%` })]),
+      ]),
+      el("div", { class: "meter " + meterClass(pfPct) }, [
+        el("span", { text: "PF " + (s.pf_states_current || 0) + "/" + (s.pf_states_limit || 0) }),
+        el("span", { text: pfPct.toFixed(2) + "%", class: "num" }),
+        el("span", { class: "bar" }, [el("i", { style: `width:${pfPct}%` })]),
+      ]),
+      el("div", { class: "sub", text: `LOAD ${(s.loadavg || []).map(n => n.toFixed(2)).join("  ") || "—"} / UP ${s.uptime || "—"}` }),
+    ]);
+  }
+
+  function cellHA(h) {
+    const enabled = !!h.enabled;
+    return el("section", { class: "cell span-4", "aria-label": "HA Sync" }, [
+      el("h2", {}, "[ HA SYNC ]"),
+      el("p", { class: "lead mono", text: enabled ? "ENABLED" : "DISABLED" }),
+      el("div", { class: "sub", text: `IFACE ${h.pfsync_interface || "—"} · PEER ${h.pfsync_peer_ip || "—"}` }),
+      el("div", { class: "sub", text: `VERSION ${h.pfsync_version || "—"}` }),
+      el("div", {}, [
+        el("span", { class: "chip " + (enabled ? "ok" : ""), text: enabled ? "Active" : "Standby" }),
+      ]),
+    ]);
+  }
+
+  function cellCerts(c) {
+    const sev = c.expiring_soon_count > 0 ? "warn" : "ok";
+    return el("section", { class: "cell span-4", "aria-label": "Certificates" }, [
+      el("h2", {}, "[ CERTS ]"),
+      el("p", { class: "lead mono", text: String(c.total) }),
+      el("div", { class: "sub", text: `${c.expiring_soon_count} expiring within 30d` }),
+      el("div", {}, [el("span", { class: "chip " + sev, text: sev === "ok" ? "All current" : "Action soon" })]),
+    ]);
+  }
+
+  function cellInterfaces(rows) {
+    const cell = el("section", { class: "cell span-8", "aria-label": "Interfaces" }, [
+      el("h2", {}, "[ INTERFACES ]"),
+    ]);
+    const table = el("table", { class: "tt" });
+    table.innerHTML = `
+      <caption class="vh">Interfaces with traffic counters</caption>
+      <thead><tr>
+        <th>Iface</th><th>Label</th><th>State</th><th>IPv4</th>
+        <th class="num">RX</th><th class="num">TX</th><th class="num">Err</th><th class="num">Drop</th>
+      </tr></thead><tbody></tbody>`;
+    const tb = $("tbody", table);
+    for (const i of rows) {
+      const ip4 = (i.ipv4 || []).map(x => `${x.ipaddr}/${x.subnetbits}`).join(" ") || "—";
+      const tr = document.createElement("tr");
+      const stateChip = i.is_up ? '<span class="chip ok">UP</span>' : '<span class="chip error">DOWN</span>';
+      tr.innerHTML = `
+        <td><b>${escapeText(i.name)}</b></td>
+        <td class="dim">${escapeText(i.label || "—")}</td>
+        <td>${stateChip}</td>
+        <td class="dim">${escapeText(ip4)}</td>
+        <td class="num">${fmtBytes(i.received_bytes)}</td>
+        <td class="num">${fmtBytes(i.sent_bytes)}</td>
+        <td class="num">${i.received_errors + i.send_errors}</td>
+        <td class="num">${i.dropped_packets}</td>`;
+      tb.appendChild(tr);
+    }
+    if (!rows.length) {
+      tb.innerHTML = `<tr><td colspan="8" class="dim">No interfaces reported.</td></tr>`;
+    }
+    cell.appendChild(table);
+    return cell;
+  }
+
+  function cellGateways(rows) {
+    const cell = el("section", { class: "cell span-4", "aria-label": "Gateways" }, [
+      el("h2", {}, "[ GATEWAYS ]"),
+    ]);
+    const table = el("table", { class: "tt" });
+    table.innerHTML = `
+      <caption class="vh">Gateways with RTT and loss</caption>
+      <thead><tr>
+        <th>Name</th><th>Status</th><th class="num">RTT</th><th class="num">Loss</th>
+      </tr></thead><tbody></tbody>`;
+    const tb = $("tbody", table);
+    for (const g of rows) {
+      const tr = document.createElement("tr");
+      const sev = g.is_up ? "ok" : "error";
+      tr.innerHTML = `
+        <td><b>${escapeText(g.name)}</b><div class="dim">${escapeText(g.address)}</div></td>
+        <td><span class="chip ${sev}">${escapeText(g.status_human || g.status)}</span></td>
+        <td class="num">${g.delay_ms ? g.delay_ms.toFixed(1) + "ms" : "—"}</td>
+        <td class="num">${g.loss_pct ? g.loss_pct.toFixed(1) + "%" : "—"}</td>`;
+      tb.appendChild(tr);
+    }
+    if (!rows.length) {
+      tb.innerHTML = `<tr><td colspan="4" class="dim">No gateways configured.</td></tr>`;
+    }
+    cell.appendChild(table);
+    return cell;
+  }
+
+  function cellServices(s) {
+    const cell = el("section", { class: "cell span-6", "aria-label": "Services" }, [
+      el("h2", {}, "[ SERVICES ]"),
+      el("p", { class: "lead mono", text: `${s.running}/${s.total}` }),
+      el("div", { class: "sub", text: `${s.stopped} stopped` }),
+    ]);
+    if (s.stopped > 0) {
+      const list = el("div", { class: "sub" });
+      const stopped = s.items.filter(x => !x.running).slice(0, 6).map(x => x.name);
+      list.textContent = "STOPPED: " + stopped.join(", ");
+      cell.appendChild(list);
+    }
+    return cell;
+  }
+
+  function cellVPN(v) {
+    const wgChip = v.wireguard_enabled ? "ok" : "";
+    const wgLbl = v.wireguard_enabled ? "ON" : "OFF";
+    return el("section", { class: "cell span-6", "aria-label": "VPN" }, [
+      el("h2", {}, "[ VPN ]"),
+      el("p", { class: "lead mono", text: `${v.wireguard_peers.length} WG · ${v.ipsec_phase1.length} IPSEC · ${v.openvpn_sessions.length} OVPN` }),
+      el("div", {}, [
+        el("span", { class: "chip " + wgChip, text: "WireGuard " + wgLbl }),
+        el("span", { class: "chip", text: "IPsec " + (v.ipsec_phase1.length || 0) }),
+        el("span", { class: "chip", text: "OpenVPN " + (v.openvpn_sessions.length || 0) }),
+      ]),
+    ]);
+  }
+
+  function render(data) {
+    const main = $("#grid");
+    main.setAttribute("aria-busy", "false");
+    main.replaceChildren(
+      cellSystem(data.system),
+      cellHA(data.hasync),
+      cellCerts(data.certs),
+      el("h2", { class: "section-title" }, [el("b", { text: "DATA PLANE" }), " /// interfaces · gateways · routing"]),
+      cellInterfaces(data.interfaces),
+      cellGateways(data.gateways),
+      el("h2", { class: "section-title" }, [el("b", { text: "CONTROL PLANE" }), " /// services · vpn · certs"]),
+      cellServices(data.services),
+      cellVPN(data.vpn),
+    );
+  }
+
+  function renderError(err) {
+    const main = $("#grid");
+    main.setAttribute("aria-busy", "false");
+    let title = "Upstream error";
+    let body = err.detail || err.message || "Unknown error";
+    if (err.kind === "auth") {
+      title = "Authentication failed";
+      body = "OPNsense rejected the API key + secret. Check Settings.";
+    } else if (err.kind === "timeout") {
+      title = "Timed out";
+      body = "OPNsense did not respond within the allotted time. Try again or check connectivity.";
+    }
+    main.replaceChildren(
+      el("div", { class: "banner", role: "alert" }, [
+        el("b", { text: title.toUpperCase() }), document.createTextNode(" — "),
+        document.createTextNode(body),
+      ])
+    );
+  }
+
+  // ============================================================ controller
+  let inFlight = false;
+  async function refresh() {
+    if (inFlight) return;
+    inFlight = true;
+    const btn = $("#btn-refresh");
+    btn.setAttribute("aria-busy", "true");
+    btn.disabled = true;
+    try {
+      const data = await fetchOverview();
+      renderHeader(data);
+      render(data);
+    } catch (e) {
+      renderError(e);
+    } finally {
+      inFlight = false;
+      btn.setAttribute("aria-busy", "false");
+      btn.disabled = false;
+    }
+  }
+
+  $("#btn-refresh").addEventListener("click", refresh);
+  // Auto-refresh slow tick: 30s.
+  setInterval(refresh, 30_000);
+  refresh();
+</script>
 </body>
 </html>

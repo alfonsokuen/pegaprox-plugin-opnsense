@@ -66,6 +66,27 @@ def _load_config():
         return {'opnsense_hosts': [], 'poll_interval': 30, 'read_only': False}
 
 
+def _first_host_from_config():
+    """Build an OPNsenseHost dataclass from the first entry in config.json.
+
+    Imported lazily so unit tests of routes don't need a config file present.
+    """
+    from src.client import OPNsenseHost  # local import to keep top-level light
+    cfg = _load_config()
+    hosts = cfg.get('opnsense_hosts') or []
+    if not hosts:
+        return None
+    h = hosts[0]
+    return OPNsenseHost(
+        name=str(h.get('name', 'opnsense')),
+        url=str(h.get('url', '')),
+        api_key=str(h.get('api_key', '')),
+        api_secret=str(h.get('api_secret', '')),
+        verify_tls=bool(h.get('verify_tls', True)),
+        ca_bundle_path=h.get('ca_bundle_path') or None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Plugin registration entry point
 # ---------------------------------------------------------------------------
@@ -77,17 +98,18 @@ def register():
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v0.2.0 loading', PLUGIN_NAME)
+    log.info('%s v0.5.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     from flask import jsonify  # local import to keep top-level test-safe
+    from src.routes import build_overview_payload  # noqa: WPS433 — host-only
 
     @register_plugin_route(PLUGIN_ID, '/api/health', methods=['GET'])
     def _health():
         cfg = _load_config()
         return jsonify({
             'plugin': PLUGIN_ID,
-            'version': '0.1.0',
+            'version': '0.5.0',
             'configured': bool(cfg.get('opnsense_hosts')),
             'read_only': cfg.get('read_only', False),
         })
@@ -96,6 +118,16 @@ def register():
     def _ui():
         from flask import send_file
         return send_file(os.path.join(PLUGIN_DIR, 'opnsense.html'))
+
+    @register_plugin_route(PLUGIN_ID, '/api/overview', methods=['GET'])
+    def _overview():
+        host = _first_host_from_config()
+        if host is None:
+            return jsonify({'ok': False, 'error': 'unconfigured',
+                            'detail': 'No opnsense_hosts in config.json — '
+                                      'edit it via Settings tab.'}), 400
+        status, payload = build_overview_payload(host)
+        return jsonify(payload), status
 
     log.info('%s registered', PLUGIN_NAME)
 

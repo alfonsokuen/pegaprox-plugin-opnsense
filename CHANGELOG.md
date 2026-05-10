@@ -9,8 +9,39 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - HA sync with post-sync verification
 - Audit log + UI tab
 - Prometheus `/metrics` exporter
-- UI built through the Pro Max chain (industrial-brutalist style)
-- Playwright e2e against OPNsense lab
+- Playwright e2e on a PegaProx host with the plugin loaded
+- Detail tabs (Interfaces, Gateways, VPN, Logs)
+
+## [0.5.0] — 2026-05-10
+
+### Added
+- **Route layer** (`src/routes/overview.py`): `build_overview(client)` returns one JSON snapshot covering system, interfaces, gateways, services, VPN (WG/IPsec/OpenVPN aggregate), HA sync, and certs (with a 30-day expiring filter). `build_overview_payload(host)` wraps it with auth/timeout/upstream error envelopes.
+- **Plugin entry point** wires three Flask routes via `register_plugin_route`:
+  - `GET /api/health` (config sanity)
+  - `GET /api/ui` (the static dashboard)
+  - `GET /api/overview` (the aggregated payload)
+  - Plus `_first_host_from_config()` helper that materializes an `OPNsenseHost` from `config.json`.
+- **Industrial-brutalist Overview UI** (`opnsense.html`) built through the mandatory UI chain (`ui-ux-pro-max` → `emil-design-eng` → `design-taste-frontend` → `high-end-visual-design` → `impeccable craft` → `industrial-brutalist-ui`):
+  - Tactical Telemetry palette: `#0a0a0a` substrate, `#eaeaea` foreground, `#e61919` lone accent, `#4af626` reserved for the HA-active chip.
+  - System fonts only (`ui-monospace`, `ui-sans-serif`) — no web font fetch.
+  - Hard 90° corners, 1px CSS-grid dividers, ASCII-bracketed `[ SECTION ]` headers, `///` separators.
+  - 12-column grid that collapses cleanly to 6 cols at 1024px and a single column at 768px.
+  - Cells: System (CPU/MEM/PF meters), HA Sync, Certs, Interfaces table (RX/TX/err/drop), Gateways table (RTT/loss), Services running ratio, VPN aggregate.
+  - Auto-refresh every 30s, manual refresh button (`active:translateY(1px)`, ARIA-labelled, busy-state).
+  - A11y: `role="banner"`/`role="alert"`, `aria-busy`, `aria-live` on connection status, table `<caption class="vh">` for screen readers, focus rings, color is never the only signal.
+  - `prefers-reduced-motion: reduce` cancels skeleton shimmer + all transitions.
+- **Tests**:
+  - `tests/test_routes_unit.py` — 12 cases covering aggregation shape, certs filter, ok/auth/upstream payload envelopes (with retry exhaustion).
+  - `tests/test_ui_html.py` — 8 static checks: HTML parses, viewport + color-scheme metas present, module script wired, brutalist palette CSS variables defined, no banned AI tells (`background-clip: text`, gradient text, `border-radius` on cards), reduced-motion media query enforces `animation: none`, ARIA landmarks + busy state, responsive breakpoints at 1280/1024/768.
+
+### Changed
+- `manifest.json`: 0.4.0 → 0.5.0.
+- `__init__.py`: `register()` now wires the overview blueprint and reports v0.5.0.
+
+### QA gate
+- `ruff check src tests` → clean.
+- `pytest` → **52 passed, 15 skipped** (live unchanged).
+- UI verified statically via the new `test_ui_html.py` suite. Live browser run deferred to v1.0 RC (needs PegaProx host with plugin installed → Playwright).
 
 ## [0.4.0] — 2026-05-10
 
