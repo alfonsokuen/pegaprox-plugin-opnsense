@@ -2,11 +2,12 @@
 
 Monitor and configure OPNsense firewalls (HA-aware) from the PegaProx dashboard.
 
-[![version](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.2.4-blue)](CHANGELOG.md)
 [![pegaprox](https://img.shields.io/badge/pegaprox-0.9.9.3+-orange)](https://github.com/PegaProx/project-pegaprox)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11+-yellow)](#development)
-[![tests](https://img.shields.io/badge/tests-74_passed-success)](#qa)
+[![tests](https://img.shields.io/badge/tests-84_passed-success)](#qa)
+[![a11y](https://img.shields.io/badge/axe--core-0_violations-success)](#qa)
 
 ## What it does
 
@@ -36,8 +37,21 @@ NAT/DHCP/Unbound/WireGuard-peer CRUD use the same writer pattern; ship in v1.1.
 
 ### Observability
 
-- `GET /api/plugins/opnsense/api/overview` — single JSON snapshot for the dashboard.
-- `GET /api/plugins/opnsense/metrics` — Prometheus text exposition (no `prometheus_client` dependency).
+- `GET /api/plugins/opnsense/api/overview` — single JSON snapshot for the Overview tab.
+- `GET /api/plugins/opnsense/api/network` — interfaces + gateways + routes + ARP + NDP for the Network tab.
+- `GET /api/plugins/opnsense/api/logs?limit=N` — paginated firewall log tail (default 100, capped at 500).
+- `GET /api/plugins/opnsense/api/metrics` — Prometheus text exposition (no `prometheus_client` dependency).
+
+### Dashboard UI
+
+Four tabs, hash-routed (`#overview`, `#network`, `#vpn`, `#logs`), ARIA tablist:
+
+- **Overview** — system, HA sync, certs, interfaces (compact), gateways, services, VPN summary.
+- **Network** — live traffic chart (stacked area, top-4 by throughput), interfaces table with **per-iface SVG sparklines** and live RX/TX rates, gateways, routing table, ARP, NDP. Rates computed client-side from successive byte counters; window of 60 samples (~10 min at 10s polls). Zero front-end deps.
+- **VPN** — full WireGuard / IPsec / OpenVPN tables (peer, pubkey/CN, endpoint, RX/TX, latest handshake).
+- **Logs** — firewall log tail with live filter (search src/dst/iface/rule + action chip pass/block/rdr/nat). Auto-poll 10 s.
+
+Theme-aware: PegaProx passes `?theme=corp-light|corp-dark` and the plugin honours both. Tokens lifted from `docker_swarm/swarm.html` so the iframe blends with the host dashboard.
 
 ## Install
 
@@ -113,14 +127,14 @@ OPNSENSE_ALLOW_WRITE=1 pytest tests/test_writers_live.py   # mutates state — f
 .
 ├── manifest.json                 # PegaProx plugin manifest (has_frontend, frontend_route)
 ├── __init__.py                   # entry point: register() / unregister(), all routes
-├── opnsense.html                 # plugin UI (industrial-brutalist Overview)
+├── opnsense.html                 # plugin UI: 4 tabs, sparklines + live chart, theme-aware
 ├── install.sh / uninstall.sh
 ├── config.example.json
 ├── src/
 │   ├── client/                   # OPNsenseClient (HTTPS + retries + typed errors)
 │   ├── collectors/               # read-only snapshot fns (system, ifaces, gws, services, vpn, certs, hasync, routes, fw_log)
 │   ├── writers/                  # AliasWriter, RuleWriter, AuditLog, HAVerifier
-│   ├── routes/                   # build_overview / build_overview_payload
+│   ├── routes/                   # build_overview / build_network / build_logs payloads
 │   └── metrics/                  # Prometheus text-format exporter
 ├── tests/                        # pytest unit + live (gated)
 ├── fixtures/live/                # captured OPNsense API responses (sanitized)
@@ -129,9 +143,10 @@ OPNSENSE_ALLOW_WRITE=1 pytest tests/test_writers_live.py   # mutates state — f
 
 ## QA
 
-- 74 unit tests passing, 17 live tests gated by env (all passing against the lab when run from a host on the OPNsense management network)
+- **84 unit tests** passing, 17 live tests gated by env (all passing against the lab when run from a host on the OPNsense management network)
 - `ruff check src tests` — clean
-- The Overview UI shipped through the mandatory PegaProx UI Pro Max chain (`ui-ux-pro-max` → `emil-design-eng` → `design-taste-frontend` → `high-end-visual-design` → `impeccable craft` → `industrial-brutalist-ui`)
+- **axe-core: 0 violations** across WCAG 2.0 A + AA + best-practice on all 4 tabs (Overview / Network / VPN / Logs), verified live in browser at `pegasus.idkmanager.com`
+- UI tokens lifted from PegaProx's `docker_swarm/swarm.html` so the iframe blends with the host dashboard. Single deviation: `--muted` bumped from `#71717a` to `#a1a1aa` (zinc-400) to clear AA on `--card`
 
 See `CHANGELOG.md` for the full version-by-version history.
 
