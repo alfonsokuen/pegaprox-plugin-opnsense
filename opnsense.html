@@ -462,6 +462,7 @@
     <button class="tab" role="tab" id="tab-network" data-tab="network" aria-selected="false" aria-controls="grid">Network</button>
     <button class="tab" role="tab" id="tab-vpn" data-tab="vpn" aria-selected="false" aria-controls="grid">VPN</button>
     <button class="tab" role="tab" id="tab-logs" data-tab="logs" aria-selected="false" aria-controls="grid">Logs</button>
+    <button class="tab" role="tab" id="tab-nat" data-tab="nat" aria-selected="false" aria-controls="grid">NAT</button>
   </div>
   </nav>
 
@@ -722,6 +723,7 @@
     overview: "../api/overview",
     network: "../api/network",
     logs: "../api/logs",
+    nat: "../api/nat",
   };
 
   async function fetchJson(url) {
@@ -1183,6 +1185,148 @@
     return null; // we replaced children directly
   }
 
+  // ---------- NAT tab ----------
+  let natRules = [];
+  let natFormState = { interface: "wan", target: "", source_net: "any", destination_net: "any", description: "", protocol: "any" };
+  let natError = "";
+  let natBusy = false;
+
+  async function natList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.nat);
+      natRules = data.rules || [];
+      natError = "";
+    } catch (e) {
+      natRules = [];
+      natError = e.detail || e.message || "error";
+    }
+  }
+
+  async function natCreate() {
+    natBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.nat, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", rule: natFormState }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error || "create failed");
+      natFormState = { interface: "wan", target: "", source_net: "any", destination_net: "any", description: "", protocol: "any" };
+      natError = "";
+    } catch (e) {
+      natError = e.message || String(e);
+    }
+    natBusy = false;
+    await natList();
+    renderNatTab();
+  }
+
+  async function natDelete(uuid) {
+    if (!confirm(`¿Eliminar regla NAT ${uuid.slice(0,8)}…?`)) return;
+    natBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.nat, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error || "delete failed");
+      natError = "";
+    } catch (e) {
+      natError = e.message || String(e);
+    }
+    natBusy = false;
+    await natList();
+    renderNatTab();
+  }
+
+  function natForm() {
+    const card = el("section", { class: "card span-12", "aria-label": "Crear regla NAT" }, [
+      el("p", { class: "title" }, "[ nueva regla source NAT ]"),
+    ]);
+    const grid = el("div", { style: "display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 8px;" });
+    const inputs = [
+      ["interface", "Interface (wan/lan)", "text", false],
+      ["target", "Target IP/alias", "text", false],
+      ["source_net", "Source net", "text", false],
+      ["destination_net", "Destination net", "text", false],
+      ["protocol", "Protocol (any|tcp|udp)", "text", false],
+      ["description", "Descripción", "text", false],
+    ];
+    for (const [k, label, type] of inputs) {
+      const wrap = el("label", { style: "display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;" }, [
+        document.createTextNode(label),
+      ]);
+      const input = document.createElement("input");
+      input.type = type;
+      input.value = natFormState[k] || "";
+      input.style.cssText = "background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit;";
+      input.setAttribute("aria-label", label);
+      input.addEventListener("input", (e) => { natFormState[k] = e.target.value; });
+      wrap.appendChild(input);
+      grid.appendChild(wrap);
+    }
+    card.appendChild(grid);
+
+    const actions = el("div", { style: "display: flex; gap: 8px; align-items: center; margin-top: 10px;" });
+    const btnAdd = el("button", { class: "btn btn-primary", type: "button" }, ["Crear regla"]);
+    btnAdd.disabled = natBusy;
+    btnAdd.setAttribute("aria-busy", natBusy ? "true" : "false");
+    btnAdd.addEventListener("click", natCreate);
+    actions.appendChild(btnAdd);
+    if (natError) {
+      actions.appendChild(el("span", { style: "color: var(--red); font-size: 12px;", role: "alert", text: "Error: " + natError }));
+    }
+    card.appendChild(actions);
+    return card;
+  }
+
+  function natTable() {
+    const card = el("section", { class: "card span-12", "aria-label": "Reglas source NAT" }, [
+      el("p", { class: "title", text: `[ reglas existentes (${natRules.length}) ]` }),
+    ]);
+    const table = el("table", { class: "tt" });
+    table.innerHTML = `
+      <caption>Reglas NAT outbound</caption>
+      <thead><tr>
+        <th>Iface</th><th>Source</th><th>Dest</th><th>Target</th><th>Proto</th><th>Descripción</th><th>Estado</th><th></th>
+      </tr></thead><tbody></tbody>`;
+    const tb = $("tbody", table);
+    for (const r of natRules) {
+      const tr = document.createElement("tr");
+      const enabled = r.disabled !== "1" && r.disabled !== 1;
+      const stateBadge = enabled ? '<span class="badge badge-green">on</span>' : '<span class="badge badge-muted">off</span>';
+      const td = (txt, cls = "") => `<td class="${cls}">${escapeText(txt || "—")}</td>`;
+      tr.innerHTML = `
+        ${td(r.interface)}
+        ${td(r.source_net, "mono")}
+        ${td(r.destination_net, "mono")}
+        ${td(r.target, "mono")}
+        ${td(r.protocol, "dim")}
+        ${td(r.description)}
+        <td>${stateBadge}</td>
+        <td></td>`;
+      const btn = el("button", { class: "btn", type: "button", "aria-label": `Eliminar regla ${r.uuid}`, text: "Eliminar" });
+      btn.disabled = natBusy;
+      btn.addEventListener("click", () => natDelete(r.uuid));
+      tr.lastElementChild.appendChild(btn);
+      tb.appendChild(tr);
+    }
+    if (!natRules.length) tb.innerHTML = `<tr><td colspan="8" class="dim">Sin reglas configuradas.</td></tr>`;
+    card.appendChild(table);
+    return card;
+  }
+
+  function renderNatTab() {
+    const main = $("#grid");
+    main.replaceChildren(natForm(), natTable());
+    main.setAttribute("aria-busy", "false");
+  }
+
   // ---------- drilldown ----------
   function dlChart(name) {
     const rates = trafficRates.get(name) || [];
@@ -1390,6 +1534,7 @@
     network:  { endpoint: ENDPOINTS.network,  render: renderNetwork,  refresh: 10_000 },
     vpn:      { endpoint: ENDPOINTS.overview, render: renderVPN,      refresh: 30_000 },
     logs:     { endpoint: ENDPOINTS.logs + "?limit=200", render: renderLogs, refresh: 10_000 },
+    nat:      { custom: true, refresh: 0 },
   };
 
   let currentTab = "overview";
@@ -1443,6 +1588,12 @@
     btn.setAttribute("aria-busy", "true");
     btn.disabled = true;
     try {
+      if (cfg.custom && currentTab === "nat") {
+        await natList();
+        renderNatTab();
+        main.setAttribute("aria-busy", "false");
+        return;
+      }
       const data = await fetchJson(cfg.endpoint);
       // overview/network include system info we use for the conn header
       if (data.system) renderHeader(data.system);

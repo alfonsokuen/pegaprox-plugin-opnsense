@@ -16,8 +16,10 @@ This package exposes:
 - `HAVerifier`     — calls hasync syncTo and re-fetches the peer.
 - `AliasWriter`    — CRUD for `/api/firewall/alias/*`.
 - `RuleWriter`     — CRUD for `/api/firewall/filter/*`.
+- `NatWriter`      — CRUD for `/api/firewall/source_nat/*` (outbound NAT).
 """
 from .alias import AliasInput, AliasWriter  # noqa: F401
 from .audit import AuditEntry, AuditLog  # noqa: F401
 from .hasync_writer import HAVerifier  # noqa: F401
+from .nat import NatInput, NatWriter  # noqa: F401
 from .rule import RuleInput, RuleWriter  # noqa: F401

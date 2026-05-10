@@ -120,10 +120,10 @@ def test_html_includes_aria_landmarks_and_busy_state():
             or 'aria-label="Refrescar vista"' in body)
 
 
-def test_html_has_tablist_with_four_tabs():
+def test_html_has_tablist_with_five_tabs():
     body = _content()
     assert 'role="tablist"' in body, "missing tablist landmark"
-    for tab in ("overview", "network", "vpn", "logs"):
+    for tab in ("overview", "network", "vpn", "logs", "nat"):
         assert f'data-tab="{tab}"' in body, f"missing tab: {tab}"
     # Exactly one tab must declare aria-selected="true" in markup
     # (excluding the CSS selector that also contains the same string).
@@ -133,8 +133,16 @@ def test_html_has_tablist_with_four_tabs():
 
 def test_html_uses_per_tab_endpoints():
     body = _content()
-    for ep in ("../api/overview", "../api/network", "../api/logs"):
+    for ep in ("../api/overview", "../api/network", "../api/logs", "../api/nat"):
         assert ep in body, f"missing endpoint reference: {ep}"
+
+
+def test_html_has_nat_tab_and_form():
+    body = _content()
+    assert 'data-tab="nat"' in body
+    assert "renderNatTab" in body
+    assert "natCreate" in body
+    assert "natDelete" in body
 
 
 def test_html_drilldown_loads_recent_firewall_events():

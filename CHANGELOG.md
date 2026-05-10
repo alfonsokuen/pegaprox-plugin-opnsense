@@ -4,11 +4,23 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.4+)
-- Additional writers: NAT, DHCP static mappings, Unbound host/domain overrides, WireGuard peers (same pattern as Aliases/Rules).
+### Planned (v1.5+)
+- DHCP static mappings + Unbound host/domain overrides + WireGuard peer CRUD (same pattern as NAT/Aliases/Rules).
+- 1:1 NAT and port-forward (rdr) writers — endpoints `/api/firewall/one_to_one/*` confirmed in lab.
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
-- IP-flow-level sessions snapshot in drilldown (uses `/api/diagnostics/firewall/states`).
+
+## [1.4.0] — 2026-05-10
+
+### Added
+- **NAT writer** — `NatWriter` for outbound source NAT (`/api/firewall/source_nat/*`). Mirrors the AliasWriter/RuleWriter contract: validate → addRule → apply → audit; rolls back the orphan rule if `apply` fails. HA sync optional via the same `HAVerifier`.
+- **`GET /api/plugins/opnsense/api/nat`** — list outbound NAT rules.
+- **`POST /api/plugins/opnsense/api/nat`** — `{action: "create"|"delete", ...}`. Refuses writes when `read_only: true` in `config.json` (HTTP 403). Validates `interface` + `target` before hitting the upstream.
+- **NAT tab** in the dashboard UI: 6-column form (interface / target / source / destination / protocol / description), live table of existing rules with per-row delete, error banner inline. Uses native confirm() before delete.
+- Smoke-tested live against the lab: `addRule` → uuid → `delRule/<uuid>` round-trip OK. The schema requires a real IP in `target` (string `wan_address` is rejected with `not a valid source IP address or alias`).
+
+### Verified
+- 14 new unit tests (`tests/test_nat_unit.py`) cover NatInput payload shape, rollback path, read-only refusal, validation errors, and create→delete round-trip via mocks. Suite total: 98 unit tests passing.
 
 ## [1.3.1] — 2026-05-10
 

@@ -110,7 +110,7 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.3.1',
+        'version': '1.4.0',
         'configured': bool(cfg.get('opnsense_hosts')),
         'read_only': cfg.get('read_only', False),
     }
@@ -159,6 +159,24 @@ def _h_logs():
     return jsonify(payload), status
 
 
+def _h_nat():
+    from flask import jsonify, request
+    from src.routes import build_nat_action_payload, build_nat_list_payload
+    host = _first_host_from_config()
+    if host is None:
+        return _unconfigured_response()
+    if request.method == 'GET':
+        status, payload = build_nat_list_payload(host)
+        return jsonify(payload), status
+    body = request.get_json(silent=True) or {}
+    cfg = _load_config()
+    status, payload = build_nat_action_payload(
+        host, PLUGIN_DIR, body,
+        actor='plugin', read_only=bool(cfg.get('read_only', False)),
+    )
+    return jsonify(payload), status
+
+
 def _h_metrics():
     from flask import Response
     from src.client import OPNsenseClient
@@ -188,7 +206,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.3.1 loading', PLUGIN_NAME)
+    log.info('%s v1.4.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     routes = {
@@ -199,6 +217,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         'overview': _h_overview,
         'network': _h_network,
         'logs': _h_logs,
+        'nat': _h_nat,
         'metrics': _h_metrics,
     }
     for path, handler in routes.items():
