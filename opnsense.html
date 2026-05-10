@@ -294,6 +294,71 @@
   .chart-card .axis line { stroke: var(--border); stroke-width: 1; }
   .chart-card .grid-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; opacity: .6; }
 
+  /* ---------- drilldown dialog --------------------------------------- */
+  dialog.drilldown {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0;
+    width: min(960px, 92vw);
+    max-height: 90vh;
+    overflow: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  dialog.drilldown::backdrop { background: rgba(0, 0, 0, 0.6); }
+  dialog.drilldown .dl-head {
+    position: sticky; top: 0;
+    background: var(--card);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+  }
+  dialog.drilldown .dl-head h2 {
+    margin: 0;
+    font-size: 15px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  dialog.drilldown .dl-head h2 .label {
+    color: var(--muted); font-weight: 500; margin-left: 6px; font-size: 12px;
+  }
+  dialog.drilldown .dl-body { padding: 18px; }
+  dialog.drilldown .dl-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    margin-bottom: 14px;
+  }
+  dialog.drilldown .stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  dialog.drilldown .stat .k {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); font-weight: 600;
+  }
+  dialog.drilldown .stat .v {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    font-variant-numeric: tabular-nums;
+    margin-top: 4px; word-break: break-word;
+  }
+  dialog.drilldown svg.dl-chart { width: 100%; height: 220px; display: block; }
+  dialog.drilldown .dl-empty {
+    color: var(--muted); font-size: 12px; padding: 20px; text-align: center;
+  }
+  @media (max-width: 768px) {
+    dialog.drilldown .dl-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .iface-link {
+    appearance: none; background: transparent; border: 0; padding: 0;
+    color: inherit; font: inherit; cursor: pointer;
+    text-decoration: underline; text-decoration-color: transparent;
+    transition: text-decoration-color .15s ease, color .15s ease;
+  }
+  .iface-link:hover { color: var(--accent); text-decoration-color: var(--accent); }
+  .iface-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
   /* ---------- log viewer ----------------------------------------------- */
   .log-toolbar {
     display: flex;
@@ -411,6 +476,14 @@
   </main>
 </div>
 
+<dialog id="drilldown" class="drilldown" aria-labelledby="dl-title">
+  <div class="dl-head">
+    <h2 id="dl-title">Interfaz</h2>
+    <button class="btn" type="button" id="dl-close" aria-label="Cerrar detalle">Cerrar</button>
+  </div>
+  <div class="dl-body" id="dl-body"></div>
+</dialog>
+
 <script type="module">
   // Theme awareness — PegaProx passes ?theme=corp-light|corp-dark|... when
   // it embeds the plugin in its iframe. Treat anything containing "light"
@@ -483,9 +556,14 @@
     }
   }
 
+  // Caches so the drilldown can show iface metadata + neighbors.
+  const lastInterfaces = new Map(); // name -> row object
+  let lastArp = [], lastNdp = [];
+
   function ingestInterfaces(rows) {
     for (const i of rows || []) {
       pushTrafficSample(i.name, i.received_bytes || 0, i.sent_bytes || 0);
+      lastInterfaces.set(i.name, i);
     }
   }
 
@@ -739,7 +817,7 @@
         : '<span class="badge badge-red">DOWN</span>';
       const tr = document.createElement("tr");
       const tdIface = document.createElement("td");
-      tdIface.innerHTML = `<b>${escapeText(i.name)}</b><div class="dim" style="font-size:11px;">${escapeText(i.label || "")}</div>`;
+      tdIface.innerHTML = `<button class="iface-link" data-iface="${escapeText(i.name)}" type="button"><b>${escapeText(i.name)}</b></button><div class="dim" style="font-size:11px;">${escapeText(i.label || "")}</div>`;
       const tdState = document.createElement("td"); tdState.innerHTML = stateChip;
       const tdIp = document.createElement("td"); tdIp.className = "dim mono"; tdIp.textContent = ip4;
       const tdSpark = document.createElement("td"); tdSpark.appendChild(sparkline(i.name));
@@ -900,6 +978,8 @@
   }
 
   function renderNetwork(data) {
+    lastArp = data.arp || [];
+    lastNdp = data.ndp || [];
     return [
       trafficChart(data.interfaces),
       cellInterfaces(data.interfaces, "span-12"),
@@ -1103,6 +1183,146 @@
     return null; // we replaced children directly
   }
 
+  // ---------- drilldown ----------
+  function dlChart(name) {
+    const rates = trafficRates.get(name) || [];
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("class", "dl-chart");
+    const W = 920, H = 220, padL = 56, padR = 12, padT = 12, padB = 24;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `Tráfico en vivo de ${name}`);
+    const innerW = W - padL - padR;
+    const innerH = H - padT - padB;
+
+    if (rates.length < 2) {
+      const t = document.createElementNS(svgNS, "text");
+      t.setAttribute("x", W / 2); t.setAttribute("y", H / 2);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("fill", "var(--muted)");
+      t.textContent = "Esperando muestras…";
+      svg.appendChild(t);
+      return svg;
+    }
+
+    const yMax = Math.max(1, ...rates.map(r => Math.max(r.rxRate, r.txRate)));
+    const xStep = innerW / (TRAFFIC_WINDOW - 1);
+
+    // grid + y axis
+    const ticks = 4;
+    const axis = document.createElementNS(svgNS, "g");
+    axis.setAttribute("class", "axis");
+    for (let k = 0; k <= ticks; k++) {
+      const v = (yMax * k) / ticks;
+      const y = padT + innerH - (innerH * k) / ticks;
+      const ln = document.createElementNS(svgNS, "line");
+      ln.setAttribute("class", "grid-line");
+      ln.setAttribute("x1", padL); ln.setAttribute("x2", W - padR);
+      ln.setAttribute("y1", y); ln.setAttribute("y2", y);
+      axis.appendChild(ln);
+      const tx = document.createElementNS(svgNS, "text");
+      tx.setAttribute("x", padL - 6);
+      tx.setAttribute("y", y + 3);
+      tx.setAttribute("text-anchor", "end");
+      tx.textContent = fmtRate(v);
+      axis.appendChild(tx);
+    }
+    svg.appendChild(axis);
+
+    function line(key, color) {
+      const offset = TRAFFIC_WINDOW - rates.length;
+      const pts = rates.map((s, i) => {
+        const x = padL + (offset + i) * xStep;
+        const y = padT + innerH - (s[key] / yMax) * innerH;
+        return [x, y];
+      });
+      let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+      for (const p of pts.slice(1)) d += ` L${p[0].toFixed(1)},${p[1].toFixed(1)}`;
+      const path = document.createElementNS(svgNS, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", color);
+      path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+    }
+    line("rxRate", "#22c55e");
+    line("txRate", "#3b82f6");
+    return svg;
+  }
+
+  function openDrilldown(name) {
+    const dlg = $("#drilldown");
+    const body = $("#dl-body");
+    const title = $("#dl-title");
+    const i = lastInterfaces.get(name);
+    title.innerHTML = `<span class="accent">${escapeText(name)}</span>${i?.label ? `<span class="label">${escapeText(i.label)}</span>` : ""}`;
+    body.replaceChildren();
+
+    if (!i) {
+      body.appendChild(el("div", { class: "dl-empty", text: "Sin datos para esta interfaz." }));
+    } else {
+      const r = getCurrentRate(name);
+      const ip4 = (i.ipv4 || []).map(x => `${x.ipaddr}/${x.subnetbits}`).join(" ") || "—";
+      const ip6 = (i.ipv6 || []).map(x => `${x.ipaddr}/${x.subnetbits}`).join(" ") || "—";
+      const stats = el("div", { class: "dl-grid" }, [
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "Estado" }), el("div", { class: "v", text: i.is_up ? "UP" : "DOWN" })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "RX rate" }), el("div", { class: "v", text: fmtRate(r.rx) })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "TX rate" }), el("div", { class: "v", text: fmtRate(r.tx) })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "MTU" }), el("div", { class: "v", text: String(i.mtu || "—") })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "RX total" }), el("div", { class: "v", text: fmtBytes(i.received_bytes) })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "TX total" }), el("div", { class: "v", text: fmtBytes(i.sent_bytes) })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "Errores" }), el("div", { class: "v", text: String((i.received_errors || 0) + (i.send_errors || 0)) })]),
+        el("div", { class: "stat" }, [el("div", { class: "k", text: "Drops" }), el("div", { class: "v", text: String(i.dropped_packets || 0) })]),
+        el("div", { class: "stat", style: "grid-column: span 2;" }, [el("div", { class: "k", text: "IPv4" }), el("div", { class: "v mono", text: ip4 })]),
+        el("div", { class: "stat", style: "grid-column: span 2;" }, [el("div", { class: "k", text: "IPv6" }), el("div", { class: "v mono", text: ip6 })]),
+      ]);
+      body.appendChild(stats);
+
+      const chartCard = el("section", { class: "card chart-card", style: "padding: 12px;" }, [
+        el("p", { class: "title", text: "[ tráfico — RX (verde) / TX (azul) ]" }),
+      ]);
+      chartCard.appendChild(dlChart(name));
+      body.appendChild(chartCard);
+
+      // Filter neighbors to this iface (by interface_name or interface label)
+      const matchIface = (n) => n.interface_name === name || n.interface === (i.label || name) || n.interface === name;
+      const arp = lastArp.filter(matchIface).slice(0, 30);
+      const ndp = lastNdp.filter(matchIface).slice(0, 30);
+      if (arp.length || ndp.length) {
+        const tbl = el("section", { class: "card", style: "padding: 12px; margin-top: 12px;" }, [
+          el("p", { class: "title", text: `[ neighbors en ${escapeText(name)} ]` }),
+        ]);
+        const t = document.createElement("table");
+        t.className = "tt";
+        t.innerHTML = `<thead><tr><th>Familia</th><th>IP</th><th>MAC</th><th>Host</th></tr></thead><tbody></tbody>`;
+        const tb = $("tbody", t);
+        for (const n of [...arp, ...ndp]) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td class="dim">${n.family}</td><td class="mono">${escapeText(n.ip)}</td><td class="mono dim">${escapeText(n.mac || "—")}</td><td class="dim">${escapeText(n.hostname || n.manufacturer || "—")}</td>`;
+          tb.appendChild(tr);
+        }
+        tbl.appendChild(t);
+        body.appendChild(tbl);
+      } else {
+        body.appendChild(el("div", { class: "dl-empty", text: "Sin vecinos descubiertos en esta interfaz (o tab Network aún no consultada)." }));
+      }
+    }
+    dlg.showModal();
+  }
+
+  function closeDrilldown() { $("#drilldown")?.close(); }
+
+  // delegated click — works for tables re-rendered after every poll
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest?.(".iface-link");
+    if (link?.dataset?.iface) {
+      e.preventDefault();
+      openDrilldown(link.dataset.iface);
+    }
+  });
+
   // ---------- tab router ----------
   const TAB_CONFIG = {
     overview: { endpoint: ENDPOINTS.overview, render: renderOverview, refresh: 10_000 },
@@ -1202,6 +1422,7 @@
     if (name !== currentTab) switchTab(name);
   });
   $("#btn-refresh").addEventListener("click", loadCurrentTab);
+  $("#dl-close")?.addEventListener("click", closeDrilldown);
 
   // initial
   const initialTab = location.hash.replace("#", "") || "overview";

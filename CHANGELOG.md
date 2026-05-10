@@ -4,11 +4,22 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.3+)
+### Planned (v1.4+)
 - Additional writers: NAT, DHCP static mappings, Unbound host/domain overrides, WireGuard peers (same pattern as Aliases/Rules).
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
-- Per-iface drilldown panel (timeseries graph + IP sessions snapshot).
+- IP-flow-level sessions snapshot in drilldown (uses `/api/diagnostics/firewall/states`).
+
+## [1.3.0] — 2026-05-10
+
+### Added
+- **Per-iface drilldown panel**. Click any iface name in the Interfaces table (Overview or Network tabs) to open a `<dialog>` modal with:
+  - 4×2 stat grid: state, RX/TX rate, MTU, RX/TX totals, errors, drops, IPv4, IPv6
+  - **Big traffic chart** for that single iface — separate RX (green) + TX (blue) lines, 60-sample window, axis labels in B/s/KB/s/...
+  - Filtered ARP + NDP neighbors visible on that iface (when Network tab has been visited at least once)
+- Cached `lastInterfaces` Map and `lastArp` / `lastNdp` lists so the drilldown works regardless of which tab is active.
+- Delegated `click` listener on `.iface-link` so re-rendered tables stay clickable across polls.
+- Native HTML5 `<dialog>`: built-in Escape-to-close, focus trap, backdrop. Stays a11y-clean: 0 axe-core violations.
 
 ## [1.2.4] — 2026-05-10
 

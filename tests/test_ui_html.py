@@ -137,6 +137,18 @@ def test_html_uses_per_tab_endpoints():
         assert ep in body, f"missing endpoint reference: {ep}"
 
 
+def test_html_has_drilldown_dialog():
+    body = _content()
+    # Native <dialog> for accessible per-iface modal.
+    assert '<dialog id="drilldown"' in body
+    assert 'aria-labelledby="dl-title"' in body
+    # The iface-link button class is what triggers the drilldown.
+    assert "iface-link" in body
+    # Body must include both delegated handler and dl-close click hook.
+    assert "openDrilldown" in body
+    assert "showModal()" in body
+
+
 def test_html_has_responsive_breakpoints():
     body = _content()
     for px in (1280, 1024, 768):
