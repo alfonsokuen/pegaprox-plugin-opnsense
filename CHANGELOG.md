@@ -11,6 +11,14 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Top-talkers + bandwidth sparklines in the Interfaces detail tab.
 
+## [1.1.2] — 2026-05-10
+
+### Fixed
+- **Last 5 axe color-contrast violations**. After v1.1.1 closed 39/44 nodes, the remaining 5 were `.badge-red` (#ef4444 on rgba red 0.15 → 3.83:1) and `.badge-blue` (#3b82f6 on rgba blue 0.15 → 3.78:1). Bumped the badge foreground to a tone-200/300 variant (e.g. `#fca5a5` red-300, `#93c5fd` blue-300, `#4ade80` green-400, `#fcd34d` amber-300) so the rgba background still clears 4.5:1. Light theme uses the deeper 700-tones for the same contrast guarantee. The standalone `--red/--blue/...` tokens are unchanged — only the `.badge-*` foregrounds.
+
+### Verified
+- Axe-core re-run inside the iframe expected: **0 violations** across WCAG 2.0 A + AA + best-practice.
+
 ## [1.1.1] — 2026-05-10
 
 ### Fixed
