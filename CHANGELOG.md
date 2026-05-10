@@ -10,6 +10,11 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Audit-log payload hashes (currently metadata-only).
 - Per-iface drilldown panel (timeseries graph + IP sessions snapshot).
 
+## [1.2.3] — 2026-05-10
+
+### Fixed
+- **Tablist outside any landmark** — axe still flagged `region` because the bare `<div role="tablist">` was a sibling of `<main>` and not a landmark itself. Wrapped it in `<nav aria-label="Secciones del plugin">` (separate elements: `<nav>` provides the landmark, the inner `<div>` carries `role="tablist"` so neither role is overridden). axe-core: 0 violations across all 4 tabs.
+
 ## [1.2.2] — 2026-05-10
 
 ### Fixed
