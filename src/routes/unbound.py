@@ -21,7 +21,13 @@ from src.client import (
     OPNsenseHost,
     OPNsenseTimeoutError,
 )
-from src.writers import AuditLog, UnboundHostInput, UnboundWriter
+from src.writers import (
+    AuditLog,
+    UnboundDomainInput,
+    UnboundDomainWriter,
+    UnboundHostInput,
+    UnboundWriter,
+)
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +96,74 @@ def build_unbound_action_payload(
         return 504, {"ok": False, "error": "timeout", "detail": str(e)}
     except OPNsenseError as e:
         log.exception("unbound action %s failed", action)
+        return 502, {"ok": False, "error": "upstream", "detail": str(e)}
+
+    if not result.ok:
+        return 502, {"ok": False, "error": "upstream", "detail": result.detail or "write failed"}
+    return 200, {"ok": True, "data": {"uuid": result.uuid, "action": action}}
+
+
+# ---------------------------------------------------------------------------
+# Domain overrides — same shape, different sub-resource.
+# ---------------------------------------------------------------------------
+
+
+def build_unbound_domain_list_payload(host: OPNsenseHost) -> tuple[int, dict[str, Any]]:
+    client = OPNsenseClient(host)
+    try:
+        out = client.get("/api/unbound/settings/searchDomainOverride")
+        rows = out.get("rows", []) if isinstance(out, dict) else []
+        return 200, {"ok": True, "data": {"domains": rows, "total": len(rows)}}
+    except OPNsenseAuthError as e:
+        return 401, {"ok": False, "error": "auth", "detail": str(e)}
+    except OPNsenseTimeoutError as e:
+        return 504, {"ok": False, "error": "timeout", "detail": str(e)}
+    except OPNsenseError as e:
+        log.exception("unbound domain list failed")
+        return 502, {"ok": False, "error": "upstream", "detail": str(e)}
+
+
+def build_unbound_domain_action_payload(
+    host: OPNsenseHost, plugin_dir: str, body: dict[str, Any],
+    actor: str = "plugin", read_only: bool = False,
+) -> tuple[int, dict[str, Any]]:
+    if read_only:
+        return 403, {"ok": False, "error": "read_only", "detail": "plugin config has read_only=true"}
+    action = str(body.get("action", "")).lower()
+    if action not in ("create", "delete"):
+        return 400, {"ok": False, "error": "bad_request", "detail": "action must be create|delete"}
+
+    client = OPNsenseClient(host)
+    audit = AuditLog(_audit_log_path(plugin_dir))
+    writer = UnboundDomainWriter(client, audit, actor=actor)
+
+    try:
+        if action == "create":
+            d = body.get("domain") or {}
+            try:
+                payload = UnboundDomainInput(
+                    domain=str(d.get("domain", "")),
+                    server=str(d.get("server", "")),
+                    description=str(d.get("description", "")),
+                    enabled=bool(d.get("enabled", True)),
+                )
+            except (TypeError, ValueError) as e:
+                return 400, {"ok": False, "error": "bad_request", "detail": str(e)}
+            try:
+                result = writer.create(payload)
+            except ValueError as e:
+                return 400, {"ok": False, "error": "validation", "detail": str(e)}
+        else:
+            uuid = str(body.get("uuid", ""))
+            if not uuid:
+                return 400, {"ok": False, "error": "bad_request", "detail": "uuid is required"}
+            result = writer.delete(uuid)
+    except OPNsenseAuthError as e:
+        return 401, {"ok": False, "error": "auth", "detail": str(e)}
+    except OPNsenseTimeoutError as e:
+        return 504, {"ok": False, "error": "timeout", "detail": str(e)}
+    except OPNsenseError as e:
+        log.exception("unbound domain action %s failed", action)
         return 502, {"ok": False, "error": "upstream", "detail": str(e)}
 
     if not result.ok:

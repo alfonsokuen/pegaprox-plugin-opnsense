@@ -728,6 +728,7 @@
     logs: "../api/logs",
     nat: "../api/nat",
     unbound: "../api/unbound",
+    unboundDomains: "../api/unbound_domains",
     wg: "../api/wg",
   };
 
@@ -1435,6 +1436,49 @@
     } catch (e) { dnsError = e.message; }
     dnsBusy = false; await dnsList(); renderDnsTab();
   }
+  // ---------- DNS — domain overrides (forward an entire zone) ----------
+  let dnsDomRows = [];
+  let dnsDomForm = { domain: "", server: "", description: "" };
+  let dnsDomError = "", dnsDomBusy = false;
+
+  async function dnsDomList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.unboundDomains);
+      dnsDomRows = data.domains || [];
+      dnsDomError = "";
+    } catch (e) { dnsDomRows = []; dnsDomError = e.detail || e.message || "error"; }
+  }
+  async function dnsDomCreate() {
+    dnsDomBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.unboundDomains, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", domain: dnsDomForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dnsDomForm = { domain: "", server: "", description: "" };
+      dnsDomError = "";
+    } catch (e) { dnsDomError = e.message; }
+    dnsDomBusy = false; await dnsDomList(); renderDnsTab();
+  }
+  async function dnsDomDelete(uuid) {
+    if (!confirm(`¿Eliminar domain override ${uuid.slice(0,8)}…?`)) return;
+    dnsDomBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.unboundDomains, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dnsDomError = "";
+    } catch (e) { dnsDomError = e.message; }
+    dnsDomBusy = false; await dnsDomList(); renderDnsTab();
+  }
+
   function renderDnsTab() {
     const form = crudForm({
       titleText: "[ nuevo host override ]",
@@ -1460,8 +1504,28 @@
       ],
       onDelete: dnsDelete, busy: dnsBusy,
     });
+    const domForm = crudForm({
+      titleText: "[ nuevo domain override ]",
+      fields: [
+        { key: "domain", label: "Zona (internal.lab.local)" },
+        { key: "server", label: "Resolver IP" },
+        { key: "description", label: "Descripción" },
+      ],
+      formState: dnsDomForm, busy: dnsDomBusy, error: dnsDomError, onSubmit: dnsDomCreate,
+    });
+    const domTable = crudTable({
+      titleText: "domain overrides existentes",
+      rows: dnsDomRows,
+      columns: [
+        { h: "Domain", k: "domain" },
+        { h: "Server", k: "server", cls: "mono" },
+        { h: "Descripción", k: "description" },
+        { h: "Estado", fn: r => (r.enabled === "1" || r.enabled === 1 || r.enabled === true) ? "on" : "off", cls: "dim" },
+      ],
+      onDelete: dnsDomDelete, busy: dnsDomBusy,
+    });
     const main = $("#grid");
-    main.replaceChildren(form, table);
+    main.replaceChildren(form, table, domForm, domTable);
     main.setAttribute("aria-busy", "false");
   }
 
@@ -1806,7 +1870,7 @@
         return;
       }
       if (cfg.custom && currentTab === "dns") {
-        await dnsList();
+        await Promise.all([dnsList(), dnsDomList()]);
         renderDnsTab();
         main.setAttribute("aria-busy", "false");
         return;

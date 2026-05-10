@@ -4,12 +4,25 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.6+)
+### Planned (v1.7+)
 - DHCP static mappings — needs Kea or ISC service running on lab (currently neither; `searchReservation` 000 timeout, `/api/dhcpv4/...` 404).
 - 1:1 NAT and port-forward (rdr) writers — endpoints `/api/firewall/one_to_one/*` confirmed in lab.
-- Domain overrides for Unbound (sibling of host overrides).
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
+
+## [1.6.0] — 2026-05-10
+
+### Added
+- **UnboundDomainWriter** — domain-override CRUD against `/api/unbound/settings/{addDomainOverride,delDomainOverride,searchDomainOverride}` + `/api/unbound/service/reconfigure`. Same lifecycle as `UnboundWriter`. Validates domain is a fully-qualified zone (must contain a dot) and server IP is non-empty.
+- **`/api/plugins/opnsense/api/unbound_domains`** — GET lists domain overrides; POST `{action: "create"|"delete"}` writes (refuses with HTTP 403 when read_only).
+- **DNS tab now hosts both** sub-sections — host overrides (v1.5.0) on top, domain overrides below — driven by the same `crudForm`/`crudTable` helpers. Single tab refresh fans out to both endpoints in parallel via `Promise.all`.
+
+### Verified
+- 7 new unit tests in `test_unbound_wg_unit.py` cover payload shape, validation (empty domain, bare domain without dot, empty server), rollback on apply-fail, list/action routes, read-only refusal. Suite total: **120 unit tests passing**, ruff clean.
+- HTML static check `test_html_uses_per_tab_endpoints` extended to require `../api/unbound_domains` reference.
+
+### Changed
+- `_h_unbound` and `_h_unbound_domains` are sibling handlers — host-overrides endpoint contract from v1.5.0 unchanged.
 
 ## [1.5.0] — 2026-05-10
 

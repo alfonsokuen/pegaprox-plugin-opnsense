@@ -134,7 +134,7 @@ def test_html_has_tablist_with_seven_tabs():
 def test_html_uses_per_tab_endpoints():
     body = _content()
     for ep in ("../api/overview", "../api/network", "../api/logs",
-               "../api/nat", "../api/unbound", "../api/wg"):
+               "../api/nat", "../api/unbound", "../api/unbound_domains", "../api/wg"):
         assert ep in body, f"missing endpoint reference: {ep}"
 
 
@@ -144,6 +144,8 @@ def test_html_has_dns_and_wg_tabs():
     assert "renderWgTab" in body
     assert "dnsCreate" in body and "dnsDelete" in body
     assert "wgCreate" in body and "wgDelete" in body
+    # v1.6.0 — domain overrides in DNS tab
+    assert "dnsDomCreate" in body and "dnsDomDelete" in body
 
 
 def test_html_has_nat_tab_and_form():

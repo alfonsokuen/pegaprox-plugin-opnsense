@@ -17,13 +17,19 @@ This package exposes:
 - `AliasWriter`    — CRUD for `/api/firewall/alias/*`.
 - `RuleWriter`     — CRUD for `/api/firewall/filter/*`.
 - `NatWriter`      — CRUD for `/api/firewall/source_nat/*` (outbound NAT).
-- `UnboundWriter`  — CRUD for `/api/unbound/settings/*HostOverride`.
-- `WireguardPeerWriter` — CRUD for `/api/wireguard/client/*` (WG peers).
+- `UnboundWriter`        — CRUD for `/api/unbound/settings/*HostOverride`.
+- `UnboundDomainWriter`  — CRUD for `/api/unbound/settings/*DomainOverride`.
+- `WireguardPeerWriter`  — CRUD for `/api/wireguard/client/*` (WG peers).
 """
 from .alias import AliasInput, AliasWriter  # noqa: F401
 from .audit import AuditEntry, AuditLog  # noqa: F401
 from .hasync_writer import HAVerifier  # noqa: F401
 from .nat import NatInput, NatWriter  # noqa: F401
 from .rule import RuleInput, RuleWriter  # noqa: F401
-from .unbound import UnboundHostInput, UnboundWriter  # noqa: F401
+from .unbound import (  # noqa: F401
+    UnboundDomainInput,
+    UnboundDomainWriter,
+    UnboundHostInput,
+    UnboundWriter,
+)
 from .wireguard_peer import WireguardPeerInput, WireguardPeerWriter  # noqa: F401

@@ -10,12 +10,16 @@ from src.client import OPNsenseClient, OPNsenseHost
 from src.client.opnsense_client import _RetryPolicy
 from src.routes import (
     build_unbound_action_payload,
+    build_unbound_domain_action_payload,
+    build_unbound_domain_list_payload,
     build_unbound_list_payload,
     build_wg_action_payload,
     build_wg_list_payload,
 )
 from src.writers import (
     AuditLog,
+    UnboundDomainInput,
+    UnboundDomainWriter,
     UnboundHostInput,
     UnboundWriter,
     WireguardPeerInput,
@@ -191,5 +195,88 @@ def test_wg_route_read_only(tmp_path: Path):
 def test_wg_route_validation(tmp_path: Path):
     status, _ = build_wg_action_payload(
         HOST, str(tmp_path), {"action": "create", "peer": {"name": "x"}},
+    )
+    assert status == 400
+
+
+# ---------- Unbound domain overrides ------------------------------------
+
+def test_unbound_domain_input_payload_shape():
+    p = UnboundDomainInput(domain="internal.lab.local", server="192.168.1.1", description="x")
+    body = p.to_payload()
+    assert body == {
+        "domain": {
+            "enabled": "1",
+            "domain": "internal.lab.local",
+            "server": "192.168.1.1",
+            "description": "x",
+        }
+    }
+
+
+def test_unbound_domain_input_validates(tmp_path: Path):
+    w = UnboundDomainWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
+    with pytest.raises(ValueError):
+        w.create(UnboundDomainInput(domain="", server="1.1.1.1"))
+    with pytest.raises(ValueError):
+        w.create(UnboundDomainInput(domain="bare", server="1.1.1.1"))
+    with pytest.raises(ValueError):
+        w.create(UnboundDomainInput(domain="x.y", server=""))
+
+
+@responses.activate
+def test_unbound_domain_writer_create_and_apply(tmp_path: Path):
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/settings/addDomainOverride",
+        json={"result": "saved", "uuid": "d-1"}, status=200,
+    )
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/service/reconfigure",
+        json={"status": "ok"}, status=200,
+    )
+    w = UnboundDomainWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
+    out = w.create(UnboundDomainInput(domain="lab.local", server="1.2.3.4"))
+    assert out.ok and out.uuid == "d-1"
+
+
+@responses.activate
+def test_unbound_domain_writer_rolls_back_on_apply_fail(tmp_path: Path):
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/settings/addDomainOverride",
+        json={"result": "saved", "uuid": "d-2"}, status=200,
+    )
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/service/reconfigure",
+        json={"errorMessage": "boom"}, status=500,
+    )
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/settings/delDomainOverride/d-2",
+        json={"result": "deleted"}, status=200,
+    )
+    w = UnboundDomainWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
+    out = w.create(UnboundDomainInput(domain="lab.local", server="1.2.3.4"))
+    assert not out.ok and "rolled back" in (out.detail or "")
+
+
+@responses.activate
+def test_unbound_domain_route_list_payload():
+    responses.add(
+        responses.GET, "https://opnsense.test/api/unbound/settings/searchDomainOverride",
+        json={"rows": [{"uuid": "x", "domain": "lab.local"}], "total": 1}, status=200,
+    )
+    status, payload = build_unbound_domain_list_payload(HOST)
+    assert status == 200 and payload["data"]["total"] == 1
+
+
+def test_unbound_domain_route_read_only(tmp_path: Path):
+    status, payload = build_unbound_domain_action_payload(
+        HOST, str(tmp_path), {"action": "create"}, read_only=True
+    )
+    assert status == 403 and payload["error"] == "read_only"
+
+
+def test_unbound_domain_route_validation(tmp_path: Path):
+    status, _ = build_unbound_domain_action_payload(
+        HOST, str(tmp_path), {"action": "create", "domain": {"domain": "bare"}}
     )
     assert status == 400
