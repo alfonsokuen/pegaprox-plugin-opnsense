@@ -4,10 +4,24 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.10+)
-- DHCP static mappings — needs Kea or ISC service running on lab (currently neither; `searchReservation` 000 timeout, `/api/dhcpv4/...` 404).
+### Planned (v1.11+)
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
+- Kea subnet writer (today: list-only via `searchSubnet`; subnet management belongs in a dedicated writer when a use-case appears).
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.10.0] — 2026-05-10
+
+### Added
+- **DhcpReservationWriter** — Kea DHCPv4 static-mapping CRUD against `/api/kea/dhcpv4/{addReservation,delReservation,searchReservation}` + `/api/kea/service/reconfigure`. Validates subnet UUID, IPv4 (regex `^\d{1,3}(\.\d{1,3}){3}$`), MAC (regex `^[0-9a-fA-F]{2}([:-][0-9a-fA-F]{2}){5}$`), and non-empty hostname.
+- **`/api/plugins/opnsense/api/dhcp`** — GET returns reservations + subnets in one payload (UI dropdown needs both); POST `{action: "create"|"delete"}` writes (HTTP 403 when read_only).
+- **DHCP tab** — eighth top-level tab. Form takes subnet UUID / IP / MAC / hostname / description. Subnet hint above the form tells the operator how many Kea subnets exist so they can pick the right UUID. Lab today has zero subnets configured, so the writer is shipped ready but live-tested only against mocked Kea responses.
+
+### Verified
+- 7 new unit tests in `test_dhcp_unit.py`: payload shape, 4-case validation (empty subnet, non-IPv4, malformed MAC, empty hostname), apply success, rollback on apply fail, list (joins reservations+subnets), read-only refusal, route validation. Suite total: **149 unit tests passing**, ruff clean.
+- HTML tablist test bumped from 7 → 8 tabs; endpoint test extended with `../api/dhcp`.
+
+### Known gaps
+- Lab has zero Kea subnets — live round-trip on a real reservation requires creating a subnet first (via OPNsense GUI or a future SubnetWriter). The writer and route are exercised by mocked tests; production deploys behind a Kea-enabled OPNsense will work without additional code changes.
 
 ## [1.9.0] — 2026-05-10
 

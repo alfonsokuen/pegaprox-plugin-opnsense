@@ -465,6 +465,7 @@
     <button class="tab" role="tab" id="tab-logs" data-tab="logs" aria-selected="false" aria-controls="grid">Logs</button>
     <button class="tab" role="tab" id="tab-nat" data-tab="nat" aria-selected="false" aria-controls="grid">NAT</button>
     <button class="tab" role="tab" id="tab-dns" data-tab="dns" aria-selected="false" aria-controls="grid">DNS</button>
+    <button class="tab" role="tab" id="tab-dhcp" data-tab="dhcp" aria-selected="false" aria-controls="grid">DHCP</button>
     <button class="tab" role="tab" id="tab-wg" data-tab="wg" aria-selected="false" aria-controls="grid">WG peers</button>
   </div>
   </nav>
@@ -728,6 +729,7 @@
     logs: "../api/logs",
     nat: "../api/nat",
     oneToOne: "../api/one_to_one",
+    dhcp: "../api/dhcp",
     unbound: "../api/unbound",
     unboundDomains: "../api/unbound_domains",
     unboundDots: "../api/unbound_dots",
@@ -1667,6 +1669,85 @@
     main.setAttribute("aria-busy", "false");
   }
 
+  // ---------- DHCP tab (Kea reservations) ----------
+  let dhcpRows = [], dhcpSubnets = [];
+  let dhcpForm = { subnet: "", ip_address: "", hw_address: "", hostname: "", description: "" };
+  let dhcpError = "", dhcpBusy = false;
+
+  async function dhcpList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.dhcp);
+      dhcpRows = data.reservations || [];
+      dhcpSubnets = data.subnets || [];
+      dhcpError = "";
+    } catch (e) { dhcpRows = []; dhcpSubnets = []; dhcpError = e.detail || e.message || "error"; }
+  }
+  async function dhcpCreate() {
+    dhcpBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.dhcp, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", reservation: dhcpForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dhcpForm = { subnet: "", ip_address: "", hw_address: "", hostname: "", description: "" };
+      dhcpError = "";
+    } catch (e) { dhcpError = e.message; }
+    dhcpBusy = false; await dhcpList(); renderDhcpTab();
+  }
+  async function dhcpDelete(uuid) {
+    if (!confirm(`¿Eliminar reservation ${uuid.slice(0,8)}…?`)) return;
+    dhcpBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.dhcp, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dhcpError = "";
+    } catch (e) { dhcpError = e.message; }
+    dhcpBusy = false; await dhcpList(); renderDhcpTab();
+  }
+  function renderDhcpTab() {
+    const main = $("#grid");
+    const subnetHint = dhcpSubnets.length === 0
+      ? "Lab sin subnets configuradas — crear una en Services > Kea DHCPv4 antes."
+      : `Subnets disponibles: ${dhcpSubnets.length} (usar el UUID en el campo subnet).`;
+    const subnetCard = el("section", { class: "card span-12", "aria-label": "DHCP subnets disponibles" }, [
+      el("p", { class: "title", text: "[ subnets Kea ]" }),
+      el("p", { class: "dim", text: subnetHint }),
+    ]);
+    const form = crudForm({
+      titleText: "[ nueva reservation DHCP ]",
+      fields: [
+        { key: "subnet", label: "Subnet UUID (de Kea)" },
+        { key: "ip_address", label: "IP (192.168.1.50)" },
+        { key: "hw_address", label: "MAC (AA:BB:CC:DD:EE:FF)" },
+        { key: "hostname", label: "Hostname" },
+        { key: "description", label: "Descripción" },
+      ],
+      formState: dhcpForm, busy: dhcpBusy, error: dhcpError, onSubmit: dhcpCreate,
+    });
+    const table = crudTable({
+      titleText: "reservations existentes",
+      rows: dhcpRows,
+      columns: [
+        { h: "Hostname", k: "hostname" },
+        { h: "IP", k: "ip_address", cls: "mono" },
+        { h: "MAC", k: "hw_address", cls: "mono" },
+        { h: "Subnet", k: "subnet", cls: "dim" },
+        { h: "Descripción", k: "description" },
+      ],
+      onDelete: dhcpDelete, busy: dhcpBusy,
+    });
+    main.replaceChildren(subnetCard, form, table);
+    main.setAttribute("aria-busy", "false");
+  }
+
   // ---------- WG peers tab ----------
   let wgRows = [];
   let wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "" };
@@ -1947,6 +2028,7 @@
     logs:     { endpoint: ENDPOINTS.logs + "?limit=200", render: renderLogs, refresh: 10_000 },
     nat:      { custom: true, refresh: 0 },
     dns:      { custom: true, refresh: 0 },
+    dhcp:     { custom: true, refresh: 0 },
     wg:       { custom: true, refresh: 0 },
   };
 
@@ -2010,6 +2092,12 @@
       if (cfg.custom && currentTab === "dns") {
         await Promise.all([dnsList(), dnsDomList(), dnsDotList()]);
         renderDnsTab();
+        main.setAttribute("aria-busy", "false");
+        return;
+      }
+      if (cfg.custom && currentTab === "dhcp") {
+        await dhcpList();
+        renderDhcpTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
