@@ -87,7 +87,3 @@ Tests live in `tests/`. Fixtures of OPNsense API responses go in `fixtures/`.
 ## License
 
 MIT — see `LICENSE`.
-
-## Companion plugin
-
-[`pegaprox-docker-swarm`](https://github.com/alfonsokuen/pegaprox-docker-swarm) — Docker Swarm/standalone manager from the same plugin family.
