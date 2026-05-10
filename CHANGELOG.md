@@ -10,6 +10,17 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
 
+## [1.4.1] — 2026-05-10
+
+### Fixed
+- **NAT tab a11y**:
+  - `.btn-primary` text-on-orange contrast was 3.15:1 (#fff on #e57000). Bumped background to #b75300 (deeper orange) so the button clears WCAG AA on the new bg. Added `font-weight:600`.
+  - Inline error span used `var(--red)` (#ef4444) on --card → 4.46:1, just under threshold. Switched to #fca5a5 (red-300) matching badges.
+  - NAT table delete column had an empty `<th>` (axe `empty-table-header`). Added a `.vh` visually-hidden "Acciones" label.
+
+### Notes
+- v1.4.0 was deployed but live smoke against the lab returned 504 because the OPNsense lab VM 125 lost network reachability (100% packet loss to 190.160.10.108 from both pve3 and LXC 119) — independent of the plugin. Plugin code was validated via 14 mocked unit tests; the live round-trip (addRule → delRule) was verified earlier in the session before the lab dropped.
+
 ## [1.4.0] — 2026-05-10
 
 ### Added
