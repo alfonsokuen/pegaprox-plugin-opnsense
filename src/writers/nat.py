@@ -16,7 +16,7 @@ from typing import Any
 from src.client import OPNsenseClient, OPNsenseError
 
 from .alias import AliasResult, alias_result_to_dict
-from .audit import AuditEntry, AuditLog, TimedAction
+from .audit import AuditEntry, AuditLog, TimedAction, hash_payload
 from .hasync_writer import HAVerifier, SyncResult
 
 log = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class NatWriter:
                 self._record("nat.create", payload.interface, "error", t, f"apply failed → rolled back: {e}")
                 return NatResult(ok=False, detail=f"apply failed → rolled back: {e}")
         sync = self._maybe_sync()
-        entry = self._record("nat.create", uuid, "ok", t, payload.description)
+        entry = self._record("nat.create", uuid, "ok", t, payload.description, payload_sha256=hash_payload(payload.to_payload()))
         return NatResult(ok=True, uuid=uuid, sync=sync, audit=entry)
 
     def update(self, uuid: str, payload: NatInput) -> NatResult:
@@ -117,7 +117,7 @@ class NatWriter:
                 self._record("nat.update", uuid, "error", t, str(e))
                 return NatResult(ok=False, uuid=uuid, detail=str(e))
         sync = self._maybe_sync()
-        entry = self._record("nat.update", uuid, "ok", t)
+        entry = self._record("nat.update", uuid, "ok", t, payload_sha256=hash_payload(payload.to_payload()))
         return NatResult(ok=True, uuid=uuid, sync=sync, audit=entry)
 
     def delete(self, uuid: str) -> NatResult:
@@ -151,12 +151,8 @@ class NatWriter:
         return self.ha.verify(f"{self.BASE}/searchRule")
 
     def _record(
-        self,
-        action: str,
-        target: str,
-        result: str,
-        timer: TimedAction,
-        detail: str = "",
+        self, action: str, target: str, result: str,
+        timer: TimedAction, detail: str = "", payload_sha256: str = "",
     ) -> AuditEntry:
         entry = AuditEntry.now(
             user=self.actor,
@@ -166,6 +162,7 @@ class NatWriter:
             result=result,
             duration_ms=timer.elapsed_ms,
             detail=detail,
+        payload_sha256=payload_sha256,
         )
         try:
             self.audit.append(entry)

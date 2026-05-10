@@ -110,7 +110,7 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.8.0',
+        'version': '1.9.0',
         'configured': bool(cfg.get('opnsense_hosts')),
         'read_only': cfg.get('read_only', False),
     }
@@ -305,7 +305,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.8.0 loading', PLUGIN_NAME)
+    log.info('%s v1.9.0 loading', PLUGIN_NAME)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     routes = {

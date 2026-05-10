@@ -17,7 +17,7 @@ from typing import Any
 from src.client import OPNsenseClient, OPNsenseError
 
 from .alias import AliasResult, alias_result_to_dict
-from .audit import AuditEntry, AuditLog, TimedAction
+from .audit import AuditEntry, AuditLog, TimedAction, hash_payload
 from .hasync_writer import HAVerifier, SyncResult
 
 log = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class OneToOneNatWriter:
                 self._record("one_to_one.create", payload.interface, "error", t, f"apply failed → rolled back: {e}")
                 return OneToOneResult(ok=False, detail=f"apply failed → rolled back: {e}")
         sync = self._maybe_sync()
-        entry = self._record("one_to_one.create", uuid, "ok", t, payload.description)
+        entry = self._record("one_to_one.create", uuid, "ok", t, payload.description, payload_sha256=hash_payload(payload.to_payload()))
         return OneToOneResult(ok=True, uuid=uuid, sync=sync, audit=entry)
 
     def delete(self, uuid: str) -> OneToOneResult:
@@ -139,12 +139,13 @@ class OneToOneNatWriter:
 
     def _record(
         self, action: str, target: str, result: str,
-        timer: TimedAction, detail: str = "",
+        timer: TimedAction, detail: str = "", payload_sha256: str = "",
     ) -> AuditEntry:
         entry = AuditEntry.now(
             user=self.actor, action=action, target=target,
             host=self.host_name, result=result,
             duration_ms=timer.elapsed_ms, detail=detail,
+        payload_sha256=payload_sha256,
         )
         try:
             self.audit.append(entry)

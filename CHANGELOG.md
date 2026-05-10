@@ -4,11 +4,23 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.9+)
+### Planned (v1.10+)
 - DHCP static mappings — needs Kea or ISC service running on lab (currently neither; `searchReservation` 000 timeout, `/api/dhcpv4/...` 404).
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
-- Audit-log payload hashes (currently metadata-only).
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.9.0] — 2026-05-10
+
+### Added
+- **Audit-log payload hashes** — every successful create/update record now carries a `payload_sha256` field: hex SHA-256 of the canonical-JSON (sorted keys, no whitespace) of the body that was sent to OPNsense. Tamper-evident: an auditor can replay a known input and verify the historical write referenced that exact payload, without leaking secrets through the JSONL.
+- `hash_payload(payload)` helper exported from `src.writers.audit` for use by writers and tests.
+- Forward-compat JSONL reader: `AuditLog.tail()` / `iter_all()` now silently ignore unknown fields, so a future v1.10 schema bump won't break this version's reader.
+
+### Changed
+- Every writer (`AliasWriter`, `RuleWriter`, `NatWriter`, `OneToOneNatWriter`, `UnboundWriter`, `UnboundDomainWriter`, `UnboundDotWriter`, `WireguardPeerWriter`) records `payload_sha256` on success paths (`*.create` and `*.update`). Delete paths intentionally leave the field empty since deletion is by uuid only and has no payload.
+
+### Verified
+- 8 new tests in `test_audit_hash_unit.py` cover canonical-JSON determinism, key-order independence, content sensitivity, pre-v1.9 backwards compat (missing field), forward compat (unknown future fields), and an end-to-end alias.create write that asserts the on-disk hash matches `hash_payload(payload.to_payload())`. Suite total: **142 unit tests passing**, ruff clean.
 
 ## [1.8.0] — 2026-05-10
 

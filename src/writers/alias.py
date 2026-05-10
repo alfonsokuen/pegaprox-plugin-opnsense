@@ -25,7 +25,7 @@ from typing import Any
 
 from src.client import OPNsenseClient, OPNsenseError
 
-from .audit import AuditEntry, AuditLog, TimedAction
+from .audit import AuditEntry, AuditLog, TimedAction, hash_payload
 from .hasync_writer import HAVerifier, SyncResult
 
 log = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ class AliasWriter:
                 self._record("alias.create", payload.name, "error", t, f"reconfigure failed → rolled back: {e}")
                 return AliasResult(ok=False, detail=f"reconfigure failed → rolled back: {e}")
         sync = self._maybe_sync()
-        entry = self._record("alias.create", payload.name, "ok", t, f"uuid={uuid}")
+        entry = self._record("alias.create", payload.name, "ok", t, f"uuid={uuid}", payload_sha256=hash_payload(payload.to_payload()))
         return AliasResult(ok=True, uuid=uuid, sync=sync, audit=entry)
 
     def update(self, uuid: str, payload: AliasInput) -> AliasResult:
@@ -139,7 +139,7 @@ class AliasWriter:
                 self._record("alias.update", uuid, "error", t, str(e))
                 return AliasResult(ok=False, uuid=uuid, detail=str(e))
         sync = self._maybe_sync()
-        entry = self._record("alias.update", uuid, "ok", t, payload.name)
+        entry = self._record("alias.update", uuid, "ok", t, payload.name, payload_sha256=hash_payload(payload.to_payload()))
         return AliasResult(ok=True, uuid=uuid, sync=sync, audit=entry)
 
     def delete(self, uuid: str) -> AliasResult:
@@ -166,12 +166,8 @@ class AliasWriter:
         return self.ha.verify(f"{self.BASE}/searchItem")
 
     def _record(
-        self,
-        action: str,
-        target: str,
-        result: str,
-        timer: TimedAction,
-        detail: str = "",
+        self, action: str, target: str, result: str,
+        timer: TimedAction, detail: str = "", payload_sha256: str = "",
     ) -> AuditEntry:
         entry = AuditEntry.now(
             user=self.actor,
@@ -181,6 +177,7 @@ class AliasWriter:
             result=result,
             duration_ms=timer.elapsed_ms,
             detail=detail,
+        payload_sha256=payload_sha256,
         )
         try:
             self.audit.append(entry)
