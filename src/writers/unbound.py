@@ -238,8 +238,9 @@ class UnboundDotWriter:
         return UnboundResult(ok=True, uuid=uuid, sync=sync, audit=entry)
 
     def _validate(self, payload: UnboundDotInput) -> None:
-        if not payload.domain:
-            raise ValueError("domain is required (use '.' for global)")
+        # OPNsense 26.1.2 rejects bare-root domain "." — needs a real FQDN.
+        if not payload.domain or "." not in payload.domain:
+            raise ValueError("domain must be a fully-qualified zone (e.g. lab.local)")
         if not payload.server:
             raise ValueError("server (DoT resolver IP) is required")
         if not payload.verify:

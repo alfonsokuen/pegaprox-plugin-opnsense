@@ -1552,7 +1552,7 @@
 
   // ---------- DNS — DoT entries ----------
   let dnsDotRows = [];
-  let dnsDotForm = { domain: ".", server: "", verify: "", port: "853", description: "" };
+  let dnsDotForm = { domain: "", server: "", verify: "", port: "853", description: "" };
   let dnsDotError = "", dnsDotBusy = false;
 
   async function dnsDotList() {
@@ -1641,7 +1641,7 @@
     const dotForm = crudForm({
       titleText: "[ nueva entrada DoT (DNS over TLS) ]",
       fields: [
-        { key: "domain", label: "Zona (. para global)" },
+        { key: "domain", label: "Zona (FQDN — ej. lab.local)" },
         { key: "server", label: "Resolver IP" },
         { key: "verify", label: "SNI / cert hostname" },
         { key: "port", label: "Puerto (853)" },

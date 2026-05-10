@@ -290,13 +290,13 @@ def test_unbound_domain_route_validation(tmp_path: Path):
 # ---------- Unbound DoT entries -----------------------------------------
 
 def test_unbound_dot_input_payload_shape():
-    p = UnboundDotInput(domain=".", server="1.1.1.1", verify="cloudflare-dns.com", description="x")
+    p = UnboundDotInput(domain="lab.local", server="1.1.1.1", verify="cloudflare-dns.com", description="x")
     body = p.to_payload()
     assert body == {
         "dot": {
             "enabled": "1",
             "type": "dot",
-            "domain": ".",
+            "domain": "lab.local",
             "server": "1.1.1.1",
             "port": "853",
             "verify": "cloudflare-dns.com",
@@ -312,11 +312,13 @@ def test_unbound_dot_input_validates(tmp_path: Path):
     with pytest.raises(ValueError):
         w.create(UnboundDotInput(domain="", server="1.1.1.1", verify="x.test"))
     with pytest.raises(ValueError):
-        w.create(UnboundDotInput(domain=".", server="", verify="x.test"))
+        w.create(UnboundDotInput(domain="bare", server="1.1.1.1", verify="x.test"))
     with pytest.raises(ValueError):
-        w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify=""))
+        w.create(UnboundDotInput(domain="x.y", server="", verify="x.test"))
     with pytest.raises(ValueError):
-        w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify="x.test", port="abc"))
+        w.create(UnboundDotInput(domain="x.y", server="1.1.1.1", verify=""))
+    with pytest.raises(ValueError):
+        w.create(UnboundDotInput(domain="x.y", server="1.1.1.1", verify="x.test", port="abc"))
 
 
 @responses.activate
@@ -330,7 +332,7 @@ def test_unbound_dot_writer_create_and_apply(tmp_path: Path):
         json={"status": "ok"}, status=200,
     )
     w = UnboundDotWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
-    out = w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify="cloudflare-dns.com"))
+    out = w.create(UnboundDotInput(domain="lab.local", server="1.1.1.1", verify="cloudflare-dns.com"))
     assert out.ok and out.uuid == "t-1"
 
 
@@ -349,7 +351,7 @@ def test_unbound_dot_writer_rolls_back_on_apply_fail(tmp_path: Path):
         json={"result": "deleted"}, status=200,
     )
     w = UnboundDotWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
-    out = w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify="x.test"))
+    out = w.create(UnboundDotInput(domain="lab.local", server="1.1.1.1", verify="x.test"))
     assert not out.ok and "rolled back" in (out.detail or "")
 
 

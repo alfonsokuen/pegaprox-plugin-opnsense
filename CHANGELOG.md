@@ -20,6 +20,9 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 ### Verified
 - 7 new unit tests in `test_unbound_wg_unit.py` cover payload shape (full DoT envelope), validation (empty domain/server/verify/non-numeric port), rollback path, list filtering (`type=dot` excludes plain forwards), read-only refusal, route validation. Suite total: **134 unit tests passing**, ruff clean.
 
+### Known limitation (OPNsense 26.1.2 upstream bug)
+- The `addForward` controller in OPNsense 26.1.2 **silently coerces `type=dot` to `type=forward`** when the payload arrives — verified live: POSTing `{"dot":{"type":"dot",...}}` yields a stored row with `type:"forward"`. As a result, DoT entries created through this plugin will appear in the **domain overrides** list, not the DoT list, until upstream fixes the controller. Plugin code (writer + route filter) is correct; the filter will start surfacing DoT rows automatically once OPNsense honours the `type` field. Domain UI hint updated to use a real FQDN (not the DNS root `.`), since the API also rejects bare-root domains.
+
 ## [1.7.0] — 2026-05-10
 
 ### Added
