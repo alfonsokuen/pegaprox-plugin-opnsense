@@ -6,9 +6,31 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ### Planned (v1.0.0)
 - Additional writers: NAT, DHCP, Unbound, WireGuard peers (same pattern as Aliases/Rules).
-- Prometheus `/metrics` exporter.
 - Playwright e2e on a PegaProx host with the plugin loaded.
 - Detail tabs (Interfaces, Gateways, VPN, Logs).
+
+## [0.7.0] — 2026-05-10
+
+### Added
+- **Prometheus `/metrics` exporter** (`src/metrics/exporter.py`). Standalone implementation — no `prometheus_client` dependency added — emits the v0.0.4 text exposition format. Metric inventory:
+  - `opnsense_up{host}` — 0/1, set to 0 if even the system call fails.
+  - `opnsense_pf_states_current{host}` / `opnsense_pf_states_limit{host}`.
+  - `opnsense_memory_used_bytes{host}` / `opnsense_memory_total_bytes{host}` (derived from MB).
+  - `opnsense_iface_rx_bytes_total{host,iface,label}` / `tx`, `rx_errors_total`, `tx_errors_total`, `drops_total`, `iface_up`.
+  - `opnsense_gateway_rtt_seconds{host,gw}` (raw OPNsense ms → seconds), `gateway_loss_ratio` (0..1, not %), `gateway_up`.
+  - `opnsense_service_running{host,service}`.
+  - `opnsense_cert_expiry_seconds{host,cert}` (negative if expired).
+  - `opnsense_vpn_peers_total{host,type}` (wireguard/ipsec/openvpn).
+  - `opnsense_ha_enabled{host}`.
+- Plugin entry point exposes `GET /metrics` (proper `text/plain; version=0.0.4` Content-Type) for Prometheus scrapes — sits alongside `/api/health`, `/api/ui`, `/api/overview`.
+
+### Changed
+- `manifest.json`: 0.6.0 → 0.7.0.
+
+### QA gate
+- 6 unit tests verify HELP/TYPE blocks, every sample carries the `host` label, iface metrics carry `iface`, gateway loss is normalized to a 0–1 ratio (not a percent), and `up=0` is emitted on failure.
+- `ruff check src tests` → clean.
+- `pytest` → **74 passed, 17 skipped** (live metrics + writer tests skip without env).
 
 ## [0.6.0] — 2026-05-10
 

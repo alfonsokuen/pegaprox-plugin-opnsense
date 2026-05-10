@@ -129,6 +129,25 @@ def register():
         status, payload = build_overview_payload(host)
         return jsonify(payload), status
 
+    @register_plugin_route(PLUGIN_ID, '/metrics', methods=['GET'])
+    def _metrics():
+        from flask import Response
+        from src.client import OPNsenseClient
+        from src.metrics import render_metrics
+        host = _first_host_from_config()
+        if host is None:
+            return Response(
+                "# opnsense plugin: no opnsense_hosts configured\n"
+                "opnsense_up{host=\"unknown\"} 0\n",
+                mimetype="text/plain; version=0.0.4",
+            )
+        try:
+            body = render_metrics(OPNsenseClient(host), host_label=host.name)
+        except Exception as e:
+            body = (f"# opnsense plugin: render_metrics failed: {e}\n"
+                    f"opnsense_up{{host=\"{host.name}\"}} 0\n")
+        return Response(body, mimetype="text/plain; version=0.0.4")
+
     log.info('%s registered', PLUGIN_NAME)
 
 
