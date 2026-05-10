@@ -25,6 +25,8 @@ from src.writers import (
     AuditLog,
     UnboundDomainInput,
     UnboundDomainWriter,
+    UnboundDotInput,
+    UnboundDotWriter,
     UnboundHostInput,
     UnboundWriter,
 )
@@ -166,6 +168,80 @@ def build_unbound_domain_action_payload(
         return 504, {"ok": False, "error": "timeout", "detail": str(e)}
     except OPNsenseError as e:
         log.exception("unbound domain action %s failed", action)
+        return 502, {"ok": False, "error": "upstream", "detail": str(e)}
+
+    if not result.ok:
+        return 502, {"ok": False, "error": "upstream", "detail": result.detail or "write failed"}
+    return 200, {"ok": True, "data": {"uuid": result.uuid, "action": action}}
+
+
+# ---------------------------------------------------------------------------
+# DNS-over-TLS (DoT) entries — third sub-section in DNS tab.
+# Same /addForward endpoint as domains, discriminated by type=dot.
+# ---------------------------------------------------------------------------
+
+
+def build_unbound_dot_list_payload(host: OPNsenseHost) -> tuple[int, dict[str, Any]]:
+    client = OPNsenseClient(host)
+    try:
+        out = client.get("/api/unbound/settings/searchForward")
+        rows = out.get("rows", []) if isinstance(out, dict) else []
+        rows = [r for r in rows if str(r.get("type", "")).lower() == "dot"]
+        return 200, {"ok": True, "data": {"dots": rows, "total": len(rows)}}
+    except OPNsenseAuthError as e:
+        return 401, {"ok": False, "error": "auth", "detail": str(e)}
+    except OPNsenseTimeoutError as e:
+        return 504, {"ok": False, "error": "timeout", "detail": str(e)}
+    except OPNsenseError as e:
+        log.exception("unbound dot list failed")
+        return 502, {"ok": False, "error": "upstream", "detail": str(e)}
+
+
+def build_unbound_dot_action_payload(
+    host: OPNsenseHost, plugin_dir: str, body: dict[str, Any],
+    actor: str = "plugin", read_only: bool = False,
+) -> tuple[int, dict[str, Any]]:
+    if read_only:
+        return 403, {"ok": False, "error": "read_only", "detail": "plugin config has read_only=true"}
+    action = str(body.get("action", "")).lower()
+    if action not in ("create", "delete"):
+        return 400, {"ok": False, "error": "bad_request", "detail": "action must be create|delete"}
+
+    client = OPNsenseClient(host)
+    audit = AuditLog(_audit_log_path(plugin_dir))
+    writer = UnboundDotWriter(client, audit, actor=actor)
+
+    try:
+        if action == "create":
+            d = body.get("dot") or {}
+            try:
+                payload = UnboundDotInput(
+                    domain=str(d.get("domain", "")),
+                    server=str(d.get("server", "")),
+                    verify=str(d.get("verify", "")),
+                    port=str(d.get("port", "853")) or "853",
+                    description=str(d.get("description", "")),
+                    enabled=bool(d.get("enabled", True)),
+                    forward_tcp_upstream=bool(d.get("forward_tcp_upstream", False)),
+                    forward_first=bool(d.get("forward_first", False)),
+                )
+            except (TypeError, ValueError) as e:
+                return 400, {"ok": False, "error": "bad_request", "detail": str(e)}
+            try:
+                result = writer.create(payload)
+            except ValueError as e:
+                return 400, {"ok": False, "error": "validation", "detail": str(e)}
+        else:
+            uuid = str(body.get("uuid", ""))
+            if not uuid:
+                return 400, {"ok": False, "error": "bad_request", "detail": "uuid is required"}
+            result = writer.delete(uuid)
+    except OPNsenseAuthError as e:
+        return 401, {"ok": False, "error": "auth", "detail": str(e)}
+    except OPNsenseTimeoutError as e:
+        return 504, {"ok": False, "error": "timeout", "detail": str(e)}
+    except OPNsenseError as e:
+        log.exception("unbound dot action %s failed", action)
         return 502, {"ok": False, "error": "upstream", "detail": str(e)}
 
     if not result.ok:

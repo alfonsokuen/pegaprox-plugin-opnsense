@@ -4,12 +4,21 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.8+)
+### Planned (v1.9+)
 - DHCP static mappings — needs Kea or ISC service running on lab (currently neither; `searchReservation` 000 timeout, `/api/dhcpv4/...` 404).
-- DoT entries in DNS tab (third sub-section reusing `addForward` with `type=dot`).
 - Playwright e2e on a PegaProx host with the plugin loaded (in CI).
 - Audit-log payload hashes (currently metadata-only).
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.8.0] — 2026-05-10
+
+### Added
+- **UnboundDotWriter** — DNS-over-TLS CRUD reusing `/api/unbound/settings/{addForward,delForward,searchForward}` with `type=dot`. Validates domain (`.` for global allowed), server, verify (SNI/cert hostname), and numeric port (default `853`).
+- **`/api/plugins/opnsense/api/unbound_dots`** — GET filters search results to `type=dot`; POST `{action: "create"|"delete"}` writes (refuses with HTTP 403 when read_only).
+- **DNS tab** now hosts three sub-sections — host overrides, domain overrides (v1.6.0), **DoT entries** — driven by the same helpers. Tab refresh fans out to all three endpoints via `Promise.all`.
+
+### Verified
+- 7 new unit tests in `test_unbound_wg_unit.py` cover payload shape (full DoT envelope), validation (empty domain/server/verify/non-numeric port), rollback path, list filtering (`type=dot` excludes plain forwards), read-only refusal, route validation. Suite total: **134 unit tests passing**, ruff clean.
 
 ## [1.7.0] — 2026-05-10
 

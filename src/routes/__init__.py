@@ -11,6 +11,8 @@ from .unbound import (  # noqa: F401
     build_unbound_action_payload,
     build_unbound_domain_action_payload,
     build_unbound_domain_list_payload,
+    build_unbound_dot_action_payload,
+    build_unbound_dot_list_payload,
     build_unbound_list_payload,
 )
 from .wg import build_wg_action_payload, build_wg_list_payload  # noqa: F401

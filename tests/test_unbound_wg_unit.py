@@ -12,6 +12,8 @@ from src.routes import (
     build_unbound_action_payload,
     build_unbound_domain_action_payload,
     build_unbound_domain_list_payload,
+    build_unbound_dot_action_payload,
+    build_unbound_dot_list_payload,
     build_unbound_list_payload,
     build_wg_action_payload,
     build_wg_list_payload,
@@ -20,6 +22,8 @@ from src.writers import (
     AuditLog,
     UnboundDomainInput,
     UnboundDomainWriter,
+    UnboundDotInput,
+    UnboundDotWriter,
     UnboundHostInput,
     UnboundWriter,
     WireguardPeerInput,
@@ -279,5 +283,99 @@ def test_unbound_domain_route_read_only(tmp_path: Path):
 def test_unbound_domain_route_validation(tmp_path: Path):
     status, _ = build_unbound_domain_action_payload(
         HOST, str(tmp_path), {"action": "create", "domain": {"domain": "bare"}}
+    )
+    assert status == 400
+
+
+# ---------- Unbound DoT entries -----------------------------------------
+
+def test_unbound_dot_input_payload_shape():
+    p = UnboundDotInput(domain=".", server="1.1.1.1", verify="cloudflare-dns.com", description="x")
+    body = p.to_payload()
+    assert body == {
+        "dot": {
+            "enabled": "1",
+            "type": "dot",
+            "domain": ".",
+            "server": "1.1.1.1",
+            "port": "853",
+            "verify": "cloudflare-dns.com",
+            "forward_tcp_upstream": "0",
+            "forward_first": "0",
+            "description": "x",
+        }
+    }
+
+
+def test_unbound_dot_input_validates(tmp_path: Path):
+    w = UnboundDotWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
+    with pytest.raises(ValueError):
+        w.create(UnboundDotInput(domain="", server="1.1.1.1", verify="x.test"))
+    with pytest.raises(ValueError):
+        w.create(UnboundDotInput(domain=".", server="", verify="x.test"))
+    with pytest.raises(ValueError):
+        w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify=""))
+    with pytest.raises(ValueError):
+        w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify="x.test", port="abc"))
+
+
+@responses.activate
+def test_unbound_dot_writer_create_and_apply(tmp_path: Path):
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/settings/addForward",
+        json={"result": "saved", "uuid": "t-1"}, status=200,
+    )
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/service/reconfigure",
+        json={"status": "ok"}, status=200,
+    )
+    w = UnboundDotWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
+    out = w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify="cloudflare-dns.com"))
+    assert out.ok and out.uuid == "t-1"
+
+
+@responses.activate
+def test_unbound_dot_writer_rolls_back_on_apply_fail(tmp_path: Path):
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/settings/addForward",
+        json={"result": "saved", "uuid": "t-2"}, status=200,
+    )
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/service/reconfigure",
+        json={"errorMessage": "boom"}, status=500,
+    )
+    responses.add(
+        responses.POST, "https://opnsense.test/api/unbound/settings/delForward/t-2",
+        json={"result": "deleted"}, status=200,
+    )
+    w = UnboundDotWriter(_client(), AuditLog(str(tmp_path / "a.jsonl")))
+    out = w.create(UnboundDotInput(domain=".", server="1.1.1.1", verify="x.test"))
+    assert not out.ok and "rolled back" in (out.detail or "")
+
+
+@responses.activate
+def test_unbound_dot_route_list_filters_type():
+    responses.add(
+        responses.GET, "https://opnsense.test/api/unbound/settings/searchForward",
+        json={"rows": [
+            {"uuid": "a", "type": "dot", "domain": "."},
+            {"uuid": "b", "type": "forward", "domain": "lab.local"},
+        ], "total": 2}, status=200,
+    )
+    status, payload = build_unbound_dot_list_payload(HOST)
+    assert status == 200 and payload["data"]["total"] == 1
+    assert payload["data"]["dots"][0]["uuid"] == "a"
+
+
+def test_unbound_dot_route_read_only(tmp_path: Path):
+    status, payload = build_unbound_dot_action_payload(
+        HOST, str(tmp_path), {"action": "create"}, read_only=True
+    )
+    assert status == 403 and payload["error"] == "read_only"
+
+
+def test_unbound_dot_route_validation(tmp_path: Path):
+    status, _ = build_unbound_dot_action_payload(
+        HOST, str(tmp_path), {"action": "create", "dot": {"domain": "."}}
     )
     assert status == 400

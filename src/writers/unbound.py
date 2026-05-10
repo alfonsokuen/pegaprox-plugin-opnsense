@@ -144,6 +144,134 @@ class UnboundWriter:
 
 
 # ---------------------------------------------------------------------------
+# DNS-over-TLS (DoT) entries — share the `addForward` endpoint with domain
+# overrides but use `type=dot` and require port/verify (cert hostname for SNI).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class UnboundDotInput:
+    domain: str             # e.g. "." for global or "internal.lab.local"
+    server: str             # DoT resolver IP (e.g. 1.1.1.1)
+    verify: str             # cert hostname for SNI (e.g. cloudflare-dns.com)
+    port: str = "853"
+    description: str = ""
+    enabled: bool = True
+    forward_tcp_upstream: bool = False
+    forward_first: bool = False
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "dot": {
+                "enabled": "1" if self.enabled else "0",
+                "type": "dot",
+                "domain": self.domain,
+                "server": self.server,
+                "port": self.port,
+                "verify": self.verify,
+                "forward_tcp_upstream": "1" if self.forward_tcp_upstream else "0",
+                "forward_first": "1" if self.forward_first else "0",
+                "description": self.description,
+            }
+        }
+
+
+class UnboundDotWriter:
+    BASE = "/api/unbound/settings"
+    APPLY = "/api/unbound/service/reconfigure"
+
+    def __init__(
+        self,
+        client: OPNsenseClient,
+        audit: AuditLog,
+        ha: HAVerifier | None = None,
+        actor: str = "plugin",
+        host_name: str = "",
+    ) -> None:
+        self.client = client
+        self.audit = audit
+        self.ha = ha
+        self.actor = actor
+        self.host_name = host_name or client.host.name
+
+    def search(self, phrase: str = "") -> list[dict[str, Any]]:
+        params = {"searchPhrase": phrase} if phrase else {}
+        out = self.client.get(f"{self.BASE}/searchForward", **params)
+        rows = out.get("rows", []) if isinstance(out, dict) else []
+        return [r for r in rows if str(r.get("type", "")).lower() == "dot"]
+
+    def create(self, payload: UnboundDotInput) -> UnboundResult:
+        self._validate(payload)
+        with TimedAction() as t:
+            try:
+                resp = self.client.post(f"{self.BASE}/addForward", payload.to_payload())
+            except OPNsenseError as e:
+                self._record("unbound_dot.create", payload.domain or "?", "error", t, str(e))
+                return UnboundResult(ok=False, detail=str(e))
+            uuid = str(resp.get("uuid", ""))
+            if not uuid:
+                self._record("unbound_dot.create", payload.domain, "error", t, "no uuid in response")
+                return UnboundResult(ok=False, detail="OPNsense did not return uuid")
+            try:
+                self._apply()
+            except OPNsenseError as e:
+                try:
+                    self.client.post(f"{self.BASE}/delForward/{uuid}", {})
+                except OPNsenseError:
+                    pass
+                self._record("unbound_dot.create", payload.domain, "error", t, f"apply failed → rolled back: {e}")
+                return UnboundResult(ok=False, detail=f"apply failed → rolled back: {e}")
+        sync = self._maybe_sync()
+        entry = self._record("unbound_dot.create", uuid, "ok", t, payload.description)
+        return UnboundResult(ok=True, uuid=uuid, sync=sync, audit=entry)
+
+    def delete(self, uuid: str) -> UnboundResult:
+        with TimedAction() as t:
+            try:
+                self.client.post(f"{self.BASE}/delForward/{uuid}", {})
+                self._apply()
+            except OPNsenseError as e:
+                self._record("unbound_dot.delete", uuid, "error", t, str(e))
+                return UnboundResult(ok=False, uuid=uuid, detail=str(e))
+        sync = self._maybe_sync()
+        entry = self._record("unbound_dot.delete", uuid, "ok", t)
+        return UnboundResult(ok=True, uuid=uuid, sync=sync, audit=entry)
+
+    def _validate(self, payload: UnboundDotInput) -> None:
+        if not payload.domain:
+            raise ValueError("domain is required (use '.' for global)")
+        if not payload.server:
+            raise ValueError("server (DoT resolver IP) is required")
+        if not payload.verify:
+            raise ValueError("verify (cert hostname for SNI) is required")
+        if not payload.port or not payload.port.isdigit():
+            raise ValueError("port must be a numeric string (default 853)")
+
+    def _apply(self) -> None:
+        self.client.post(self.APPLY, {})
+
+    def _maybe_sync(self) -> SyncResult | None:
+        if self.ha is None:
+            return None
+        return self.ha.verify(f"{self.BASE}/searchForward")
+
+    def _record(
+        self, action: str, target: str, result: str,
+        timer: TimedAction, detail: str = "",
+    ) -> AuditEntry:
+        entry = AuditEntry.now(
+            user=self.actor, action=action, target=target,
+            host=self.host_name, result=result,
+            duration_ms=timer.elapsed_ms, detail=detail,
+        )
+        try:
+            self.audit.append(entry)
+        except OSError as e:
+            log.warning("audit log write failed: %s", e)
+        return entry
+
+
+# ---------------------------------------------------------------------------
 # Domain overrides (forward an entire DNS zone to a different resolver).
 # Same lifecycle as host overrides, smaller payload.
 # ---------------------------------------------------------------------------

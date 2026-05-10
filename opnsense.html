@@ -730,6 +730,7 @@
     oneToOne: "../api/one_to_one",
     unbound: "../api/unbound",
     unboundDomains: "../api/unbound_domains",
+    unboundDots: "../api/unbound_dots",
     wg: "../api/wg",
   };
 
@@ -1549,6 +1550,49 @@
     dnsDomBusy = false; await dnsDomList(); renderDnsTab();
   }
 
+  // ---------- DNS — DoT entries ----------
+  let dnsDotRows = [];
+  let dnsDotForm = { domain: ".", server: "", verify: "", port: "853", description: "" };
+  let dnsDotError = "", dnsDotBusy = false;
+
+  async function dnsDotList() {
+    try {
+      const data = await fetchJson(ENDPOINTS.unboundDots);
+      dnsDotRows = data.dots || [];
+      dnsDotError = "";
+    } catch (e) { dnsDotRows = []; dnsDotError = e.detail || e.message || "error"; }
+  }
+  async function dnsDotCreate() {
+    dnsDotBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.unboundDots, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", dot: dnsDotForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dnsDotForm = { domain: ".", server: "", verify: "", port: "853", description: "" };
+      dnsDotError = "";
+    } catch (e) { dnsDotError = e.message; }
+    dnsDotBusy = false; await dnsDotList(); renderDnsTab();
+  }
+  async function dnsDotDelete(uuid) {
+    if (!confirm(`¿Eliminar DoT entry ${uuid.slice(0,8)}…?`)) return;
+    dnsDotBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.unboundDots, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dnsDotError = "";
+    } catch (e) { dnsDotError = e.message; }
+    dnsDotBusy = false; await dnsDotList(); renderDnsTab();
+  }
+
   function renderDnsTab() {
     const form = crudForm({
       titleText: "[ nuevo host override ]",
@@ -1594,8 +1638,32 @@
       ],
       onDelete: dnsDomDelete, busy: dnsDomBusy,
     });
+    const dotForm = crudForm({
+      titleText: "[ nueva entrada DoT (DNS over TLS) ]",
+      fields: [
+        { key: "domain", label: "Zona (. para global)" },
+        { key: "server", label: "Resolver IP" },
+        { key: "verify", label: "SNI / cert hostname" },
+        { key: "port", label: "Puerto (853)" },
+        { key: "description", label: "Descripción" },
+      ],
+      formState: dnsDotForm, busy: dnsDotBusy, error: dnsDotError, onSubmit: dnsDotCreate,
+    });
+    const dotTable = crudTable({
+      titleText: "entradas DoT existentes",
+      rows: dnsDotRows,
+      columns: [
+        { h: "Domain", k: "domain" },
+        { h: "Server", k: "server", cls: "mono" },
+        { h: "Verify (SNI)", k: "verify", cls: "mono" },
+        { h: "Puerto", k: "port", cls: "dim" },
+        { h: "Descripción", k: "description" },
+        { h: "Estado", fn: r => (r.enabled === "1" || r.enabled === 1 || r.enabled === true) ? "on" : "off", cls: "dim" },
+      ],
+      onDelete: dnsDotDelete, busy: dnsDotBusy,
+    });
     const main = $("#grid");
-    main.replaceChildren(form, table, domForm, domTable);
+    main.replaceChildren(form, table, domForm, domTable, dotForm, dotTable);
     main.setAttribute("aria-busy", "false");
   }
 
@@ -1940,7 +2008,7 @@
         return;
       }
       if (cfg.custom && currentTab === "dns") {
-        await Promise.all([dnsList(), dnsDomList()]);
+        await Promise.all([dnsList(), dnsDomList(), dnsDotList()]);
         renderDnsTab();
         main.setAttribute("aria-busy", "false");
         return;

@@ -31,6 +31,8 @@ from .rule import RuleInput, RuleWriter  # noqa: F401
 from .unbound import (  # noqa: F401
     UnboundDomainInput,
     UnboundDomainWriter,
+    UnboundDotInput,
+    UnboundDotWriter,
     UnboundHostInput,
     UnboundWriter,
 )
