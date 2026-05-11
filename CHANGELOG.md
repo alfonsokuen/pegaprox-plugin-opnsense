@@ -8,6 +8,16 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - DHCP `option_data.*` (DNS servers, routers, classless static routes) in the subnet writer — currently only base fields (CIDR / pools / next_server / match-client-id / description) are exposed; advanced options stay GUI-managed.
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
 
+## [1.12.1] — 2026-05-11
+
+### Performance
+- **`build_overview` parallelised** — the seven collectors (system, interfaces, gateways, services, vpn, hasync, certs) now run in a `ThreadPoolExecutor(max_workers=7)` instead of sequentially. They were the dominant TTI cost: ~15 underlying OPNsense REST calls serialised over socat + WAN routinely added 3–7s per tick. With concurrency, the overview tab settles in the time of the slowest single collector (`system` is the heaviest at 5 calls). The OPNsense client (`requests.Session`) is thread-safe; no API/contract changes.
+- Polling cadence unchanged (overview 10s); the win is felt on first paint and every refresh tick.
+
+### Verified
+- Unit suite still **157 passing** (collectors are individually mocked, so the parallel orchestration is transparent to existing tests).
+- Live `/api/overview` round-trip wall-time measured before/after on LXC 119 against the lab VM 125.
+
 ## [1.12.0] — 2026-05-11
 
 ### Added

@@ -1,12 +1,15 @@
 """Aggregated overview endpoint for the plugin UI.
 
 Calls the collector layer and returns a single JSON payload the dashboard
-front-end can render in one render pass. Designed to be a fast tick (<3s
-total against a healthy lab); concurrent calls TBD when latency matters.
+front-end can render in one render pass. v1.12.1+ runs the seven collectors
+concurrently — each ~15 underlying OPNsense API calls serialised was the
+dominant TTI cost on the lab (socat + WAN). Each collector is independent
+and the OPNsense client is thread-safe (requests.Session under the hood).
 """
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.client import (
@@ -33,13 +36,26 @@ CERT_EXPIRY_WARNING_DAYS = 30
 
 def build_overview(client: OPNsenseClient) -> dict[str, Any]:
     """Single-shot snapshot for the Overview tab. Pure function — pass any client."""
-    system = collect_system(client)
-    interfaces = collect_interfaces(client)
-    gateways = collect_gateways(client)
-    services = collect_services(client)
-    vpn = collect_vpn(client)
-    hasync = collect_hasync(client)
-    certs = collect_certificates(client)
+    tasks = {
+        "system": collect_system,
+        "interfaces": collect_interfaces,
+        "gateways": collect_gateways,
+        "services": collect_services,
+        "vpn": collect_vpn,
+        "hasync": collect_hasync,
+        "certs": collect_certificates,
+    }
+    with ThreadPoolExecutor(max_workers=len(tasks), thread_name_prefix="overview") as ex:
+        futures = {name: ex.submit(fn, client) for name, fn in tasks.items()}
+        results = {name: fut.result() for name, fut in futures.items()}
+
+    system = results["system"]
+    interfaces = results["interfaces"]
+    gateways = results["gateways"]
+    services = results["services"]
+    vpn = results["vpn"]
+    hasync = results["hasync"]
+    certs = results["certs"]
 
     certs_expiring = [
         c for c in certs
