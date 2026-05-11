@@ -136,8 +136,22 @@ def test_html_uses_per_tab_endpoints():
     for ep in ("../api/overview", "../api/network", "../api/logs",
                "../api/nat", "../api/one_to_one",
                "../api/unbound", "../api/unbound_domains", "../api/unbound_dots",
-               "../api/dhcp", "../api/dhcp_subnet", "../api/wg"):
+               "../api/dhcp", "../api/dhcp_subnet", "../api/wg",
+               # v1.13.0 — health probe + cluster bar
+               "../api/health", "../api/cluster"):
         assert ep in body, f"missing endpoint reference: {ep}"
+
+
+def test_html_has_cluster_bar_and_render_helpers():
+    """v1.13.0 — cluster banner DOM + dual-column render path exist."""
+    body = _content()
+    assert 'id="cluster-bar"' in body
+    assert 'aria-label="Estado del cluster HA"' in body
+    assert "renderClusterBar" in body
+    assert "renderClusterOverview" in body
+    # Stagger animation uses --i CSS var
+    assert "card-stagger-in" in body
+    assert "applyStagger" in body
 
 
 def test_html_has_dns_and_wg_tabs():

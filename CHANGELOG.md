@@ -4,9 +4,50 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.13+)
-- DHCP `option_data.*` (DNS servers, routers, classless static routes) in the subnet writer — currently only base fields (CIDR / pools / next_server / match-client-id / description) are exposed; advanced options stay GUI-managed.
+### Planned (v1.14+)
+- **Post-write replication verification** — poll backup until the just-written object's uuid appears or N-second timeout; surface `replication_status: pending|replicated|missing` in the writer response.
+- **Per-rule firewall / NAT / alias-content divergence** — extend `compute_divergence` to walk listing endpoints from every writer (aliases full members, rules, NAT, Unbound entries, DHCP reservations, WireGuard peers).
+- DHCP `option_data.*` (DNS servers, routers, classless static routes) in the subnet writer — currently only base fields are exposed; advanced options stay GUI-managed.
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.13.0] — 2026-05-11
+
+### Added — Full cluster mode A+B (NODOA / NODOB)
+- **`collect_carp_status(client)`** (`src/collectors/carp.py`) — reads `/api/diagnostics/interface/getCarpStatus` + `getVipStatus`, classifies the node-level CARP role (`master` / `backup` / `disabled` / `unknown`), filters non-CARP VIPs (alias / proxyarp rows are dropped). Tolerant of both endpoints returning 404 on non-CARP boxes — falls back to `role=disabled`.
+- **`OPNsenseClusterClient`** (`src/client/cluster.py`) — wraps two `OPNsenseClient`s with their canonical names (e.g. NODOA/NODOB), exposes `.master()` / `.backup()` / `.both()` / `.health()`. Resolves the current master via on-demand CARP probes; callers can short-circuit with `set_carp_cache(...)` when they already collected CARP status.
+- **`compute_divergence(snap_a, snap_b)`** (`src/divergence.py`) — flat list of typed `Divergence` records across categories: `system` (config_revision drift, version mismatch), `carp` (split-brain, maintenance flag mismatch), `hasync` (pfSync disabled on one side, peer-ip mismatch), `services` (running state diff), `gateways` (status diff), `interfaces` (link state diff), `certs` (cert present on one side only by fingerprint). Sorted by severity (`error > warning > info`) so the UI surfaces the worst drift first. Not yet covered: per-rule firewall/NAT diff, full alias content, DHCP reservations, Unbound entries, WireGuard peers — those need writer-level listing APIs the overview doesn't aggregate. Tracked for v1.14+.
+- **`build_overview_payload_cluster(host_a, host_b, name_a, name_b)`** — runs `build_overview` on both nodes in parallel, computes divergence, returns shape `{ok, cluster: true, data: {nodes: {a, b}, divergence, master, names}}`. Partial-success aware: if one node fails, the other's data still comes through with `error` annotated per-node and `ok: true` at cluster level.
+- **`/api/cluster`** — dedicated endpoint that always returns cluster shape when ≥2 hosts are configured (regardless of the `cluster_mode` flag). Used by the always-on cluster status bar at the top of the plugin UI.
+- **`/api/overview`** now returns the cluster shape when `cluster_mode` is active (config flag), or the single-host shape otherwise (back-compat). `system / interfaces / gateways / services / vpn / hasync / certs / carp` keys remain stable in single-host mode; only the **new `carp` field** is added (always present, may be `role=disabled`).
+- **`/api/health`** gains `cluster_mode` (bool) and `hosts_configured` (int) so the UI's bootstrap probe knows whether to fetch `/api/cluster` and whether to show the cluster bar.
+- **Cluster-aware writer routing** — `_first_host_from_config()` now returns the current CARP master when cluster mode is on, with a 10s TTL cache so every API call doesn't trigger a probe storm. All existing writers continue to work unchanged — they transparently target master. After a master flip, writes route to the new master within one TTL window.
+- **Config schema additions**:
+  - `cluster_mode: "auto" | "off"` (canonical flag for v1.13+; legacy `monitor_both_nodes: true` still respected).
+  - Per-host `name` field is honoured for the UI cluster bar labels (defaults to `NODOA` / `NODOB`).
+
+### Added — UI v1.13.0
+- **Cluster status bar** above the tab strip — appears whenever ≥2 hosts are configured. Shows each node's name, CARP role badge (master / backup / disabled / unreachable), and a divergence summary line colour-coded by worst severity (error = red, warning = yellow, info = muted). Polls `/api/cluster` every 30s independently of the tab poll loop.
+- **Overview tab — dual-column layout** when `cluster_mode` is on. Each column shows the node's system + CARP + certs/services cards; the column whose name matches the master is highlighted with the accent-colour border on the column head. Below the columns: a divergence table with severity-tinted rows (no banned border-left side-stripes — uses background tint per WCAG-respecting AI-slop guidelines). Other tabs are unchanged in cluster mode — they continue showing master-side data only.
+- **Polish pass (vanilla CSS, no build step):**
+  - **Skeleton scaffolds** painted before fetches settle on each tab transition; share the existing `.skeleton` shimmer class. `prefers-reduced-motion: reduce` still kills the animation.
+  - **Focus rings** — uniform double-shadow (`0 0 0 2px var(--bg), 0 0 0 4px var(--accent)`) on `:focus-visible` for buttons, tabs, inputs, selects. Browser default outline removed. Keyboard navigation now reads correctly across the eight tabs and forms.
+  - **Tactile press** on buttons — `transform: scale(0.97)` on `:active` with `120ms cubic-bezier(0.23, 1, 0.32, 1)` (the strong ease-out curve from Kowalski's animation framework, not the weak built-in `ease-out`).
+  - **Tab switch** — micro fade on the grid panel during `aria-busy=true` (140ms) so swaps don't feel jarring without delaying perceived response.
+  - **Refresh button glyph** spins via `animation` only while `aria-busy=true` — perceived performance trick (faster spin = faster feel).
+  - **Card stagger** on first paint per tab — CSS-cascade staggerChildren via `--i` custom property (35ms per child, max ~280ms). Disabled under `prefers-reduced-motion`.
+  - **Type hierarchy** — card titles tightened to `0.08em` tracking, lead values get `letter-spacing: -0.015em` + `font-feature-settings: "tnum"` for cleaner numeric alignment. All `.tt td` cells now default to tabular-nums (previously only `.num`-tagged cells did).
+
+### Verified
+- **Backend**: 183 unit tests passing (was 157; +25 new: 8 CARP, 10 divergence, 7 cluster-client, +1 UI-cluster-bar, plus an existing fixture update for the new `carp` key). 19 e2e skipped (gated on `RUN_E2E=1`). Ruff clean.
+- **Reachability**: confirmed LXC 119 (190.160.10.212) → `https://190.160.10.2` (NODOA) and `https://190.160.10.3` (NODOB) respond HTTP 200 in ~50ms (direct, no socat needed since they share the LAN segment).
+- **Live cluster smoke**: pending — requires API key + secret on each of NODOA / NODOB. Vault `infra_network.opnsense_{nodoa,nodob}` has root web credentials but no API key/secret yet. Operator must generate via System → Access → Users → API keys. Live smoke planned **read-only** (`config.json` `read_only: true`) against prod.
+
+### Out of scope (deferred to v1.14+)
+- **Post-write replication verification** — currently the plugin routes writes to master and trusts pfSync to replicate. v1.14 will add a poll-and-confirm step: after every successful write, re-fetch the just-written object from backup and surface `replication_status: pending|replicated|missing` in the API response.
+- **Per-rule firewall / NAT divergence** — divergence detector covers high-level diffs (services running, gateways online, certs expiring) but not per-rule content. Requires new listing endpoints in the writer modules.
+- **>2 nodes** — schema allows `opnsense_hosts` to be a list of any length, but cluster mode assumes a strict A+B pair. A `[hosts[0], hosts[1]]` slice is taken; any extras are ignored.
+- **Automatic failover** — the plugin observes CARP state and routes accordingly; it does not actively trigger failover or maintenance mode transitions on either node.
+- **DHCP `option_data.*`** (DNS servers, routers, classless static routes) — still out-of-scope from v1.12.0; carry-over to v1.14+.
 
 ## [1.12.1] — 2026-05-11
 

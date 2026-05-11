@@ -4,6 +4,7 @@ Each collector takes an `OPNsenseClient` and returns a normalized snapshot
 (dataclass-like TypedDict). They are deliberately small and composable so
 the route layer can pick which to run per tab tick.
 """
+from .carp import CarpStatus, CarpVhid, collect_carp_status  # noqa: F401
 from .certificates import CertSummary, collect_certificates  # noqa: F401
 from .firewall_log import LogEntry, collect_firewall_log  # noqa: F401
 from .gateways import GatewayStatus, collect_gateways  # noqa: F401

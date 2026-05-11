@@ -441,6 +441,201 @@
     width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
   }
+
+  /* ============== v1.13.0 polish + cluster mode ====================== */
+
+  /* Stronger focus ring — applies uniformly to interactive surfaces.
+     Double-shadow trick: inner shadow == bg (gap), outer == accent ring.
+     :focus-visible only so mouse clicks don't trail rings around. */
+  .btn:focus-visible,
+  .tab:focus-visible,
+  input:focus-visible, select:focus-visible, textarea:focus-visible,
+  [role="tab"]:focus-visible, [role="button"]:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--accent);
+  }
+  /* Override the older `.tab:focus-visible { outline: ... }` declarations to
+     stop them painting a second ring inside the tab strip. */
+  .tab:focus-visible { outline: none; }
+  .btn:focus-visible { outline: none; }
+
+  /* Tactile press — Emil rule: real buttons depress under the cursor.
+     Custom ease-out curve (0.23, 1, 0.32, 1) — punchier than the default. */
+  .btn { transition: border-color .15s ease, background .15s ease,
+                     transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+                     box-shadow 120ms ease; }
+  .btn:active:not([disabled]):not([aria-busy="true"]) { transform: scale(0.97); }
+
+  /* Tab switch — micro fade-in on the grid panel so the swap doesn't feel
+     instantaneous-but-jarring. 140ms is below human perception of slowness. */
+  #grid {
+    transition: opacity 140ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  #grid[aria-busy="true"] { opacity: 0.6; }
+
+  /* Refresh button spins while loading. Only when it's actually busy. */
+  @keyframes refresh-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  #btn-refresh[aria-busy="true"] svg,
+  #btn-refresh[aria-busy="true"] .refresh-glyph { animation: refresh-spin 1s linear infinite; }
+
+  /* Card title — bump weight and tighten letterspacing so the label/value
+     hierarchy reads from across the room. */
+  .card .title { letter-spacing: 0.08em; }
+  .card .lead { letter-spacing: -0.015em; font-feature-settings: "tnum" 1, "cv11" 1; }
+
+  /* Tables — make all numeric columns tabular by default. The plugin
+     mixes hand-tagged `.num` cells with un-tagged ones; this catches the
+     stragglers without per-cell churn. */
+  .tt td { font-variant-numeric: tabular-nums; }
+
+  /* Cluster mode header banner — slim strip above the tab bar. Two
+     "node chips" with role badges + a divergence pill. Layout collapses
+     gracefully under 768px so mobile shows the chips stacked. */
+  .cluster-bar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    margin: 0 0 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .cluster-bar .node {
+    display: flex; align-items: baseline; gap: 8px;
+    overflow: hidden;
+  }
+  .cluster-bar .node.right { justify-content: flex-end; text-align: right; }
+  .cluster-bar .node .nm {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+  .cluster-bar .node .role {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .cluster-bar .node .role.master { background: rgba(229, 112, 0, 0.18); color: var(--accent); }
+  .cluster-bar .node .role.backup { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+  .cluster-bar .node .role.disabled,
+  .cluster-bar .node .role.unknown { background: rgba(113,113,122,.18); color: var(--muted); }
+  .cluster-bar .node .url { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+  .cluster-bar .pivot {
+    width: 1px; height: 26px; background: var(--border);
+  }
+  .cluster-bar .diverge {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    color: var(--muted);
+    padding-top: 8px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .cluster-bar .diverge.has-error { color: #fca5a5; }
+  .cluster-bar .diverge.has-warning { color: #fcd34d; }
+  html.theme-light .cluster-bar .diverge.has-error { color: #b91c1c; }
+  html.theme-light .cluster-bar .diverge.has-warning { color: #92400e; }
+  .cluster-bar .diverge b { color: var(--text); }
+
+  /* Cluster overview — dual-column wrapper. Each node card is a full
+     column on its own grid; divergence card sits below spanning both. */
+  .cluster-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    grid-column: 1 / -1;
+  }
+  @media (max-width: 900px) {
+    .cluster-grid { grid-template-columns: 1fr; }
+  }
+  .node-col {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+  }
+  .node-col .col-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 6px 4px 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    margin-bottom: 2px;
+  }
+  .node-col .col-head h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .node-col .col-head h2 .accent { color: var(--accent); }
+  .node-col[data-role="master"] .col-head { border-bottom-color: var(--accent); }
+  .node-col .err-card {
+    background: var(--card);
+    border: 1px solid var(--red);
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 12px;
+  }
+  .node-col .err-card b { display: block; margin-bottom: 4px; font-size: 11px;
+                         letter-spacing: 0.06em; text-transform: uppercase; color: var(--red); }
+
+  /* Divergence detail card — table rows colour-coded by severity using a
+     subtle background tint (NOT a side-stripe — that's a banned AI tell). */
+  .diverge-card { grid-column: 1 / -1; }
+  .diverge-card .tt tr[data-severity="error"]   { background: rgba(239, 68, 68, .07); }
+  .diverge-card .tt tr[data-severity="warning"] { background: rgba(234, 179, 8, .07); }
+  .diverge-card .tt tr[data-severity="info"]    { background: transparent; }
+  .diverge-card .tt td.sev {
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .diverge-card .tt td.sev[data-severity="error"]   { color: #fca5a5; }
+  .diverge-card .tt td.sev[data-severity="warning"] { color: #fcd34d; }
+  .diverge-card .tt td.sev[data-severity="info"]    { color: var(--muted); }
+  html.theme-light .diverge-card .tt td.sev[data-severity="error"]   { color: #b91c1c; }
+  html.theme-light .diverge-card .tt td.sev[data-severity="warning"] { color: #92400e; }
+
+  /* Per-tab skeleton scaffolds painted BEFORE the fetch settles. They share
+     the existing .skeleton class — these wrappers just give them card-shaped
+     containers so the layout reserves space and content doesn't jump. */
+  .skel-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .skel-card .skeleton + .skeleton { margin-top: 8px; }
+  .skel-table .skeleton { height: 28px; margin-top: 4px; }
+  .skel-table .skeleton:first-child { height: 18px; width: 40%; margin-bottom: 8px; }
+
+  /* Stagger cards in on first paint of each tab. CSS-cascade variant of
+     Framer's staggerChildren — driven entirely by --i, no JS state. */
+  @keyframes card-stagger-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  #grid > .card,
+  #grid > .cluster-grid > .node-col > .card,
+  #grid > .diverge-card {
+    animation: card-stagger-in 280ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
+    animation-delay: calc(var(--i, 0) * 35ms);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #grid > .card,
+    #grid > .cluster-grid > .node-col > .card,
+    #grid > .diverge-card { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -454,8 +649,26 @@
       <b id="conn-host">—</b>
       <span id="conn-version">cargando…</span>
     </div>
-    <button class="btn" type="button" id="btn-refresh" aria-label="Refrescar vista">Refresh</button>
+    <button class="btn" type="button" id="btn-refresh" aria-label="Refrescar vista">
+      <span class="refresh-glyph" aria-hidden="true">⟳</span>
+      <span>Refresh</span>
+    </button>
   </header>
+
+  <aside id="cluster-bar" class="cluster-bar" hidden aria-label="Estado del cluster HA">
+    <div class="node">
+      <span class="nm" id="cb-name-a">NODOA</span>
+      <span class="role unknown" id="cb-role-a">—</span>
+      <span class="url" id="cb-url-a"></span>
+    </div>
+    <div class="pivot" aria-hidden="true"></div>
+    <div class="node right">
+      <span class="url" id="cb-url-b"></span>
+      <span class="role unknown" id="cb-role-b">—</span>
+      <span class="nm" id="cb-name-b">NODOB</span>
+    </div>
+    <div class="diverge" id="cb-diverge" aria-live="polite">Cargando estado del cluster…</div>
+  </aside>
 
   <nav aria-label="Secciones del plugin">
   <div class="tabs" role="tablist">
@@ -724,6 +937,8 @@
   // Endpoints resolve under /api/plugins/opnsense/api/<x> when served by
   // PegaProx (this HTML lives at /api/plugins/opnsense/api/ui).
   const ENDPOINTS = {
+    health: "../api/health",
+    cluster: "../api/cluster",
     overview: "../api/overview",
     network: "../api/network",
     logs: "../api/logs",
@@ -735,6 +950,16 @@
     unboundDomains: "../api/unbound_domains",
     unboundDots: "../api/unbound_dots",
     wg: "../api/wg",
+  };
+
+  // v1.13.0 cluster-mode state.
+  // `info` is the latest /api/health snapshot (cluster_mode boolean, hosts_configured).
+  // `lastCluster` is the latest /api/cluster payload — used by the overview tab
+  // when cluster_mode is on AND for the always-on cluster bar at the top.
+  const cluster = {
+    enabled: false,
+    info: null,
+    lastCluster: null,
   };
 
   async function fetchJson(url) {
@@ -2200,7 +2425,214 @@
   $("#btn-refresh").addEventListener("click", loadCurrentTab);
   $("#dl-close")?.addEventListener("click", closeDrilldown);
 
+  // ---------- v1.13.0 cluster bar + cluster overview ----------------------
+  // The cluster bar appears at the top whenever ≥2 hosts are configured,
+  // independently of cluster_mode. cluster_mode flips the Overview tab
+  // payload to dual-column shape; reads from other tabs still go through
+  // the canonical (master) endpoint so the rest of the UI is unchanged.
+
+  function renderClusterBar(payload) {
+    const bar = $("#cluster-bar");
+    if (!payload || !payload.ok || !payload.data) {
+      bar.hidden = true;
+      return;
+    }
+    const d = payload.data;
+    const ra = d?.nodes?.a?.snap?.carp;
+    const rb = d?.nodes?.b?.snap?.carp;
+    const nameA = d?.names?.a || "NODOA";
+    const nameB = d?.names?.b || "NODOB";
+
+    $("#cb-name-a").textContent = nameA;
+    $("#cb-name-b").textContent = nameB;
+    const setRole = (id, role) => {
+      const node = $(id);
+      const r = (role || "unknown").toLowerCase();
+      node.textContent = r;
+      node.className = "role " + (["master","backup","disabled","unknown"].includes(r) ? r : "unknown");
+    };
+    setRole("#cb-role-a", ra?.role || (d?.nodes?.a?.ok ? "unknown" : "unreachable"));
+    setRole("#cb-role-b", rb?.role || (d?.nodes?.b?.ok ? "unknown" : "unreachable"));
+
+    // Divergence summary line.
+    const divs = Array.isArray(d.divergence) ? d.divergence : [];
+    const errors = divs.filter(x => x.severity === "error").length;
+    const warns  = divs.filter(x => x.severity === "warning").length;
+    const infos  = divs.filter(x => x.severity === "info").length;
+    const div = $("#cb-diverge");
+    div.classList.remove("has-error", "has-warning");
+    if (errors) {
+      div.classList.add("has-error");
+      div.innerHTML = `<b>${errors}</b> error · <b>${warns}</b> warning · <b>${infos}</b> info — cluster con drift crítico`;
+    } else if (warns) {
+      div.classList.add("has-warning");
+      div.innerHTML = `<b>${warns}</b> warning · <b>${infos}</b> info — drift menor entre nodos`;
+    } else if (infos) {
+      div.innerHTML = `<b>${infos}</b> info — nodos en sync`;
+    } else {
+      div.textContent = "Cluster en sync — sin drift detectado.";
+    }
+    bar.hidden = false;
+  }
+
+  function renderClusterOverview(payload) {
+    // Returns the list of children for #grid when cluster_mode is on.
+    const d = payload?.data || {};
+    const grid = el("div", { class: "cluster-grid", role: "presentation" });
+    const buildCol = (side) => {
+      const node = d?.nodes?.[side];
+      const isMaster = (d.master === node?.name);
+      const col = el("section", {
+        class: "node-col",
+        "data-role": isMaster ? "master" : "backup",
+        "aria-label": node?.name || side.toUpperCase(),
+      }, []);
+      col.appendChild(el("div", { class: "col-head" }, [
+        el("h2", {}, [
+          el("span", { class: "accent", text: node?.name || side.toUpperCase() }),
+          document.createTextNode(isMaster ? "  · master" : "  · backup"),
+        ]),
+      ]));
+      if (!node || !node.ok || !node.snap) {
+        col.appendChild(el("div", { class: "err-card" }, [
+          el("b", { text: node?.error || "nodo no alcanzable" }),
+          document.createTextNode(node?.detail || "Sin respuesta del nodo."),
+        ]));
+        return col;
+      }
+      const s = node.snap;
+      // Tight set of cards per column: system, link, CARP, services.
+      col.appendChild(el("section", { class: "card" }, [
+        el("div", { class: "title", text: "system" }),
+        el("div", { class: "lead", text: s?.system?.name || "—" }),
+        el("div", { class: "sub", text: `${s?.system?.version || ""} · uptime ${s?.system?.uptime || "—"}` }),
+      ]));
+      col.appendChild(el("section", { class: "card" }, [
+        el("div", { class: "title", text: "CARP" }),
+        el("div", { class: "lead", text: (s?.carp?.role || "unknown").toUpperCase() }),
+        el("div", { class: "sub", text: s?.carp?.enabled
+          ? `${(s?.carp?.vhids||[]).length} VHIDs · pfSync ${s?.hasync?.enabled ? "on" : "off"}`
+          : "CARP disabled" }),
+      ]));
+      const certs = s?.certs?.expiring_soon_count ?? 0;
+      col.appendChild(el("section", { class: "card" }, [
+        el("div", { class: "title", text: "certs / servicios" }),
+        el("div", { class: "lead", text: certs ? `${certs} venciendo` : "OK" }),
+        el("div", { class: "sub", text: `${(s?.services?.items || []).filter(x=>x.running).length} servicios up` }),
+      ]));
+      return col;
+    };
+    grid.appendChild(buildCol("a"));
+    grid.appendChild(buildCol("b"));
+
+    const divs = Array.isArray(d.divergence) ? d.divergence : [];
+    const divCard = el("section", { class: "card diverge-card", "aria-label": "Divergencia entre nodos" }, [
+      el("div", { class: "title", text: `divergencia (${divs.length})` }),
+    ]);
+    if (!divs.length) {
+      divCard.appendChild(el("div", { class: "sub",
+        text: "Sin diferencias detectables entre los nodos." }));
+    } else {
+      const table = el("table", { class: "tt" });
+      table.appendChild(el("thead", {}, [el("tr", {}, [
+        el("th", { text: "Sev" }), el("th", { text: "Categoría" }),
+        el("th", { text: "Item" }), el("th", { text: d?.names?.a || "A" }),
+        el("th", { text: d?.names?.b || "B" }), el("th", { text: "Detalle" }),
+      ])]));
+      const body = el("tbody", {});
+      for (const x of divs) {
+        const tr = el("tr", { "data-severity": x.severity }, [
+          el("td", { class: "sev", text: x.severity, "data-severity": x.severity }),
+          el("td", { text: x.category }),
+          el("td", { text: x.key }),
+          el("td", { class: "dim", text: JSON.stringify(x.a) }),
+          el("td", { class: "dim", text: JSON.stringify(x.b) }),
+          el("td", { class: "dim", text: x.detail || "" }),
+        ]);
+        body.appendChild(tr);
+      }
+      table.appendChild(body);
+      divCard.appendChild(table);
+    }
+    return [grid, divCard];
+  }
+
+  async function refreshClusterBar() {
+    try {
+      const data = await fetchJson(ENDPOINTS.cluster);
+      cluster.lastCluster = data;
+      renderClusterBar(data);
+    } catch (e) {
+      // 400 single_host is expected; other errors are silent in the bar
+      // because the per-tab fetch will surface its own error.
+      $("#cluster-bar").hidden = true;
+    }
+  }
+
+  async function bootCluster() {
+    try {
+      const h = await fetchJson(ENDPOINTS.health);
+      cluster.info = h.data || h;
+      cluster.enabled = !!(cluster.info?.cluster_mode);
+      if ((cluster.info?.hosts_configured ?? 0) >= 2) {
+        await refreshClusterBar();
+        // Re-poll the cluster bar every 30s so role flips surface promptly.
+        setInterval(refreshClusterBar, 30_000);
+      }
+    } catch (e) {
+      // health failing isn't fatal — the per-tab UI will surface auth/upstream.
+    }
+  }
+
+  // Apply stagger --i indices to grid children. Called after every replaceChildren.
+  function applyStagger() {
+    const grid = $("#grid");
+    if (!grid) return;
+    let i = 0;
+    for (const c of grid.children) {
+      if (c.classList?.contains("card") || c.classList?.contains("diverge-card")
+          || c.classList?.contains("cluster-grid")) {
+        c.style.setProperty("--i", String(i++));
+      }
+    }
+  }
+
+  // Patch loadCurrentTab: for the overview tab, when cluster mode is on,
+  // call /api/cluster and route through renderClusterOverview. Otherwise
+  // fall through to the existing behaviour.
+  const _origLoadCurrentTab = loadCurrentTab;
+  loadCurrentTab = async function patchedLoadCurrentTab() {
+    if (currentTab === "overview" && cluster.enabled) {
+      if (inFlight) return;
+      inFlight = true;
+      const main = $("#grid");
+      main.setAttribute("aria-busy", "true");
+      const btn = $("#btn-refresh");
+      btn.setAttribute("aria-busy", "true");
+      btn.disabled = true;
+      try {
+        const data = await fetchJson(ENDPOINTS.cluster);
+        cluster.lastCluster = data;
+        renderClusterBar(data);
+        const nodes = renderClusterOverview(data);
+        main.replaceChildren(...nodes);
+        applyStagger();
+        main.setAttribute("aria-busy", "false");
+      } catch (e) {
+        renderError(e);
+      } finally {
+        inFlight = false;
+        btn.setAttribute("aria-busy", "false");
+        btn.disabled = false;
+      }
+      return;
+    }
+    await _origLoadCurrentTab();
+    applyStagger();
+  };
+
   // initial
+  bootCluster();
   const initialTab = location.hash.replace("#", "") || "overview";
   switchTab(initialTab);
 </script>

@@ -75,17 +75,8 @@ def _load_config():
         return {'opnsense_hosts': [], 'poll_interval': 30, 'read_only': False}
 
 
-def _first_host_from_config():
-    """Build an OPNsenseHost dataclass from the first entry in config.json.
-
-    Imported lazily so unit tests of routes don't need a config file present.
-    """
-    from src.client import OPNsenseHost  # local import to keep top-level light
-    cfg = _load_config()
-    hosts = cfg.get('opnsense_hosts') or []
-    if not hosts:
-        return None
-    h = hosts[0]
+def _host_from_dict(h: dict):
+    from src.client import OPNsenseHost
     return OPNsenseHost(
         name=str(h.get('name', 'opnsense')),
         url=str(h.get('url', '')),
@@ -93,6 +84,86 @@ def _first_host_from_config():
         api_secret=str(h.get('api_secret', '')),
         verify_tls=bool(h.get('verify_tls', True)),
         ca_bundle_path=h.get('ca_bundle_path') or None,
+    )
+
+
+def _is_cluster_mode(cfg: dict) -> bool:
+    """v1.13.0 cluster mode is on when ≥2 hosts AND (`cluster_mode: auto`
+    OR legacy `monitor_both_nodes: true`)."""
+    hosts = cfg.get('opnsense_hosts') or []
+    if len(hosts) < 2:
+        return False
+    mode = str(cfg.get('cluster_mode', '')).lower()
+    if mode == 'off':
+        return False
+    if mode in ('auto', 'cluster', 'ha'):
+        return True
+    return bool(cfg.get('monitor_both_nodes', False))
+
+
+# Master-resolution cache: avoids a CARP probe round-trip on every request.
+# 10s TTL is short enough that CARP failovers (typical ~3-5s detection) surface
+# within one or two polling ticks, while sparing the lab from a probe storm.
+_master_cache: dict = {'side': None, 'ts': 0.0}
+_MASTER_TTL_S = 10
+
+
+def _resolved_master_side(host_a, host_b, name_a: str, name_b: str):
+    """Return 'a' or 'b'. Cached 10s. Probes both nodes' CARP status on miss."""
+    import time
+    from src.client import OPNsenseClient, OPNsenseClusterClient
+    now = time.monotonic()
+    if _master_cache['side'] is not None and (now - _master_cache['ts']) < _MASTER_TTL_S:
+        return _master_cache['side']
+    cluster = OPNsenseClusterClient(
+        OPNsenseClient(host_a), OPNsenseClient(host_b), name_a=name_a, name_b=name_b,
+    )
+    try:
+        side = cluster.master_side()
+    except Exception as e:  # noqa: BLE001
+        log.warning('master resolution failed (%s); defaulting to A', e)
+        side = 'a'
+    _master_cache['side'] = side
+    _master_cache['ts'] = now
+    return side
+
+
+def _first_host_from_config():
+    """Resolve the target OPNsense host for reads + writes.
+
+    - Single-host config: returns hosts[0].
+    - Cluster mode (≥2 hosts + cluster_mode/monitor_both_nodes flag): returns
+      the current CARP master. Cached 10s to avoid probe-per-request.
+
+    Returns None when no hosts are configured (caller emits 400 unconfigured).
+    """
+    cfg = _load_config()
+    hosts = cfg.get('opnsense_hosts') or []
+    if not hosts:
+        return None
+    if not _is_cluster_mode(cfg):
+        return _host_from_dict(hosts[0])
+    h_a, h_b = _host_from_dict(hosts[0]), _host_from_dict(hosts[1])
+    name_a = str(hosts[0].get('name', 'NODOA'))
+    name_b = str(hosts[1].get('name', 'NODOB'))
+    side = _resolved_master_side(h_a, h_b, name_a, name_b)
+    return h_a if side == 'a' else h_b
+
+
+def _cluster_hosts_from_config():
+    """Return (host_a, host_b, name_a, name_b) when cluster mode is configured.
+
+    Returns None when single-host or unconfigured.
+    """
+    cfg = _load_config()
+    if not _is_cluster_mode(cfg):
+        return None
+    hosts = cfg['opnsense_hosts']
+    return (
+        _host_from_dict(hosts[0]),
+        _host_from_dict(hosts[1]),
+        str(hosts[0].get('name', 'NODOA')),
+        str(hosts[1].get('name', 'NODOB')),
     )
 
 
@@ -110,9 +181,11 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.12.1',
+        'version': '1.13.0',
         'configured': bool(cfg.get('opnsense_hosts')),
         'read_only': cfg.get('read_only', False),
+        'cluster_mode': _is_cluster_mode(cfg),
+        'hosts_configured': len(cfg.get('opnsense_hosts') or []),
     }
 
 
@@ -131,11 +204,35 @@ def _unconfigured_response():
 
 def _h_overview():
     from flask import jsonify
-    from src.routes import build_overview_payload
+    from src.routes.overview import build_overview_payload, build_overview_payload_cluster
+    cluster = _cluster_hosts_from_config()
+    if cluster is not None:
+        host_a, host_b, name_a, name_b = cluster
+        status, payload = build_overview_payload_cluster(host_a, host_b, name_a, name_b)
+        return jsonify(payload), status
     host = _first_host_from_config()
     if host is None:
         return _unconfigured_response()
     status, payload = build_overview_payload(host)
+    return jsonify(payload), status
+
+
+def _h_cluster():
+    """Dedicated cluster endpoint. Always returns cluster shape when 2 hosts
+    are configured (regardless of cluster_mode flag) so the UI can render a
+    cluster status banner even when full cluster_mode is off."""
+    from flask import jsonify
+    from src.routes.overview import build_overview_payload_cluster
+    cfg = _load_config()
+    hosts = cfg.get('opnsense_hosts') or []
+    if len(hosts) < 2:
+        return jsonify({'ok': False, 'cluster': False,
+                        'error': 'single_host',
+                        'detail': 'Cluster endpoint requires ≥2 opnsense_hosts.'}), 400
+    host_a, host_b = _host_from_dict(hosts[0]), _host_from_dict(hosts[1])
+    name_a = str(hosts[0].get('name', 'NODOA'))
+    name_b = str(hosts[1].get('name', 'NODOB'))
+    status, payload = build_overview_payload_cluster(host_a, host_b, name_a, name_b)
     return jsonify(payload), status
 
 
@@ -350,6 +447,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         'health': _h_health,
         'ui': _h_ui,
         'overview': _h_overview,
+        'cluster': _h_cluster,
         'network': _h_network,
         'logs': _h_logs,
         'dhcp': _h_dhcp,

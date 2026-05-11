@@ -59,6 +59,19 @@ def _mock_all_endpoints() -> None:
         json=["Intel(R) Xeon(R) Gold 6138 CPU @ 2.00GHz (2 cores, 2 threads)"],
         status=200,
     )
+    # CARP (v1.13.0). Lab is single-host, no CARP — mock the disabled shape.
+    responses.add(
+        responses.GET,
+        "https://opnsense.test/api/diagnostics/interface/getCarpStatus",
+        json={"carp_enabled": "0", "maintenance_mode": "0"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://opnsense.test/api/diagnostics/interface/getVipStatus",
+        json={"rows": []},
+        status=200,
+    )
 
 
 @responses.activate
@@ -67,8 +80,9 @@ def test_overview_aggregates_all_subsystems():
     out = build_overview(_client())
 
     assert set(out.keys()) == {
-        "system", "interfaces", "gateways", "services", "vpn", "hasync", "certs",
+        "system", "interfaces", "gateways", "services", "vpn", "hasync", "certs", "carp",
     }
+    assert out["carp"]["role"] == "disabled"  # lab fixture has CARP off
     assert out["system"]["name"] == "OPNsense.internal"
     assert out["interfaces"], "expected at least one iface"
     assert "items" in out["services"]
