@@ -60,14 +60,15 @@ def test_names_helper():
 
 @responses.activate
 def test_lazy_probes_when_cache_empty():
-    responses.add(responses.GET, "https://a.test/api/diagnostics/interface/getCarpStatus",
-                  json={"carp_enabled": "1", "maintenance_mode": "0"}, status=200)
+    """v1.13.1: getCarpStatus is gone; CARP state lives in getVipStatus.carp."""
     responses.add(responses.GET, "https://a.test/api/diagnostics/interface/getVipStatus",
-                  json={"rows": [{"vhid": "1", "status": "MASTER", "mode": "carp"}]}, status=200)
-    responses.add(responses.GET, "https://b.test/api/diagnostics/interface/getCarpStatus",
-                  json={"carp_enabled": "1", "maintenance_mode": "0"}, status=200)
+                  json={"rows": [{"vhid": "1", "status": "MASTER", "mode": "carp",
+                                  "advbase": "1", "advskew": "0"}],
+                        "carp": {"maintenancemode": False, "demotion": "0"}}, status=200)
     responses.add(responses.GET, "https://b.test/api/diagnostics/interface/getVipStatus",
-                  json={"rows": [{"vhid": "1", "status": "BACKUP", "mode": "carp"}]}, status=200)
+                  json={"rows": [{"vhid": "1", "status": "BACKUP", "mode": "carp",
+                                  "advbase": "1", "advskew": "100"}],
+                        "carp": {"maintenancemode": False, "demotion": "0"}}, status=200)
     c = _cluster()
     assert c.master_side() == "a"
     assert c.master_name() == "NODOA"

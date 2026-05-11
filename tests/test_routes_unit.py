@@ -59,17 +59,12 @@ def _mock_all_endpoints() -> None:
         json=["Intel(R) Xeon(R) Gold 6138 CPU @ 2.00GHz (2 cores, 2 threads)"],
         status=200,
     )
-    # CARP (v1.13.0). Lab is single-host, no CARP — mock the disabled shape.
-    responses.add(
-        responses.GET,
-        "https://opnsense.test/api/diagnostics/interface/getCarpStatus",
-        json={"carp_enabled": "0", "maintenance_mode": "0"},
-        status=200,
-    )
+    # CARP (v1.13.1). getCarpStatus endpoint doesn't exist on OPNsense 26.x
+    # (returns 404 live). Service-level state lives inside getVipStatus.carp.
     responses.add(
         responses.GET,
         "https://opnsense.test/api/diagnostics/interface/getVipStatus",
-        json={"rows": []},
+        json={"rows": [], "carp": {}},
         status=200,
     )
 

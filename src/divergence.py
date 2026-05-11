@@ -82,6 +82,18 @@ def _diff_carp(a: dict, b: dict) -> list[Divergence]:
             b=b_c.get("maintenance_mode"),
             detail="Maintenance mode enabled on one node only.",
         ))
+    # Demotion delta: negative values indicate CARP demoted the node due to
+    # interface trouble. If either side reports demotion != 0, surface it.
+    dem_a, dem_b = a_c.get("demotion", 0), b_c.get("demotion", 0)
+    if dem_a != dem_b and (dem_a or dem_b):
+        out.append(Divergence(
+            category="carp",
+            key="demotion",
+            severity="warning",
+            a=dem_a,
+            b=dem_b,
+            detail="CARP demotion values differ — at least one node has been demoted by a link/service issue.",
+        ))
     return out
 
 

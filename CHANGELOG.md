@@ -10,6 +10,25 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - DHCP `option_data.*` (DNS servers, routers, classless static routes) in the subnet writer — currently only base fields are exposed; advanced options stay GUI-managed.
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
 
+## [1.13.1] — 2026-05-11
+
+### Fixed
+- **`collect_carp_status` realigned to OPNsense 26.x API surface.** v1.13.0 expected a separate `/api/diagnostics/interface/getCarpStatus` endpoint for the service-level CARP state. **That endpoint does not exist on 26.x** — live probe against prod NODOA/NODOB returned `{"errorMessage":"Endpoint not found"}`. The service-level CARP block (`demotion`, `allow`, `maintenancemode`, `status_msg`) actually lives inside the same `getVipStatus` payload, alongside the per-VHID rows. Collector now reads from that single response.
+- **Node-level role resolution rewritten** for mixed-VHID setups. Real-world OPNsense HA pairs commonly run multiple CARP VIPs (e.g. NODOA prod: LAN VHID 1 = BACKUP, LAN_OFI_HA VHID 4 = MASTER). v1.13.0's "all-master vs all-backup vs unknown" rule reported `unknown` for these. v1.13.1 picks a **primary VIP** (lowest VHID, lowest advskew) and tracks the node role from it — operationally correct because the primary LAN VIP is the one the network actually depends on.
+
+### Added
+- **`CarpStatus.demotion`** (int) + **`CarpStatus.status_msg`** (str) — surfaces the CARP demotion counter and OPNsense's own diagnostic message so the UI can show *why* a node has been demoted (link down on a CARP interface, etc.).
+- **Divergence rule: `carp/demotion`** (severity warning) — fires when demotion values differ between A and B and either is non-zero. Prod NODOA/NODOB shows -540 vs -1300, which is meaningful operational signal that wasn't captured in v1.13.0.
+
+### Verified — live cluster smoke ✅
+Captured against prod NODOA (190.160.10.2) + NODOB (190.160.10.3) from LXC 119 with a dedicated `pegaprox-monitor` API user generated via a PHP script over SSH (PASSWORD bcrypt-hashed, separate from root, revocable):
+- `cluster_mode: True`, `hosts_configured: 2`, `read_only: True`
+- Both nodes HTTP 200, ~50ms response time
+- **NODOA role: `backup`** (LAN VHID 1 status = BACKUP; demotion=-540 with status_msg "CARP has detected a problem and this unit has been demoted")
+- **NODOB role: `master`** (LAN VHID 1 status = MASTER; demotion=-1300)
+- Cluster `master: NODOB` (correctly resolved; writes would route there)
+- Divergence detected: `gateways/WAN_PUNTONET_GW` reports `A='none' B='down'` (severity warning — real operational drift), and once redeployed: `carp/demotion` warning -540 vs -1300.
+
 ## [1.13.0] — 2026-05-11
 
 ### Added — Full cluster mode A+B (NODOA / NODOB)
