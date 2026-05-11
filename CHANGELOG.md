@@ -8,6 +8,14 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - Kea subnet writer (today: list-only via `searchSubnet`; subnet management belongs in a dedicated writer when a use-case appears).
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
 
+## [1.11.1] — 2026-05-11
+
+### Fixed
+- `manifest.json` declared `version: 1.5.0` while `__init__.py` and runtime `/api/health` reported `1.11.0` — PegaProx's admin Plugins page reads `manifest.json`, so the UI showed the stale version. Bumped to track runtime exactly.
+
+### Docs
+- README refreshed to v1.11.x: 8 tabs, 9 writers, audit-hash schema, Playwright e2e instructions, OPNsense 26.x gotchas (Unbound endpoint rename, `type=dot` coercion bug, rdr out-of-scope, Kea subnet list-only).
+
 ## [1.11.0] — 2026-05-10
 
 ### Added
