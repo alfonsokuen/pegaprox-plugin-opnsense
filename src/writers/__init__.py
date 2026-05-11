@@ -19,6 +19,7 @@ This package exposes:
 - `NatWriter`         — CRUD for `/api/firewall/source_nat/*` (outbound NAT).
 - `OneToOneNatWriter` — CRUD for `/api/firewall/one_to_one/*` (BINAT / 1:1).
 - `DhcpReservationWriter` — CRUD for `/api/kea/dhcpv4/{add,del,search}Reservation`.
+- `DhcpSubnetWriter` — CRUD for `/api/kea/dhcpv4/{add,del,search}Subnet`.
 - `UnboundWriter`        — CRUD for `/api/unbound/settings/*HostOverride`.
 - `UnboundDomainWriter`  — CRUD for `/api/unbound/settings/*DomainOverride`.
 - `WireguardPeerWriter`  — CRUD for `/api/wireguard/client/*` (WG peers).
@@ -26,6 +27,7 @@ This package exposes:
 from .alias import AliasInput, AliasWriter  # noqa: F401
 from .audit import AuditEntry, AuditLog  # noqa: F401
 from .dhcp import DhcpReservationInput, DhcpReservationWriter  # noqa: F401
+from .dhcp_subnet import DhcpSubnetInput, DhcpSubnetWriter  # noqa: F401
 from .hasync_writer import HAVerifier  # noqa: F401
 from .nat import NatInput, NatWriter  # noqa: F401
 from .one_to_one import OneToOneNatInput, OneToOneNatWriter  # noqa: F401

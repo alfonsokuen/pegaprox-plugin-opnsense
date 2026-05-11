@@ -730,6 +730,7 @@
     nat: "../api/nat",
     oneToOne: "../api/one_to_one",
     dhcp: "../api/dhcp",
+    dhcpSubnet: "../api/dhcp_subnet",
     unbound: "../api/unbound",
     unboundDomains: "../api/unbound_domains",
     unboundDots: "../api/unbound_dots",
@@ -1669,6 +1670,41 @@
     main.setAttribute("aria-busy", "false");
   }
 
+  // ---------- DHCP — subnets sub-section ----------
+  let dhcpSubnetForm = { subnet: "", description: "", pools: "", next_server: "" };
+  let dhcpSubnetError = "", dhcpSubnetBusy = false;
+
+  async function dhcpSubnetCreate() {
+    dhcpSubnetBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.dhcpSubnet, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", subnet: dhcpSubnetForm }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dhcpSubnetForm = { subnet: "", description: "", pools: "", next_server: "" };
+      dhcpSubnetError = "";
+    } catch (e) { dhcpSubnetError = e.message; }
+    dhcpSubnetBusy = false; await dhcpList(); renderDhcpTab();
+  }
+  async function dhcpSubnetDelete(uuid) {
+    if (!confirm(`¿Eliminar subnet ${uuid.slice(0,8)}…? Si tiene reservations asociadas también se borran.`)) return;
+    dhcpSubnetBusy = true;
+    try {
+      const r = await fetch(ENDPOINTS.dhcpSubnet, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uuid }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.detail || j.error);
+      dhcpSubnetError = "";
+    } catch (e) { dhcpSubnetError = e.message; }
+    dhcpSubnetBusy = false; await dhcpList(); renderDhcpTab();
+  }
+
   // ---------- DHCP tab (Kea reservations) ----------
   let dhcpRows = [], dhcpSubnets = [];
   let dhcpForm = { subnet: "", ip_address: "", hw_address: "", hostname: "", description: "" };
@@ -1714,13 +1750,28 @@
   }
   function renderDhcpTab() {
     const main = $("#grid");
-    const subnetHint = dhcpSubnets.length === 0
-      ? "Lab sin subnets configuradas — crear una en Services > Kea DHCPv4 antes."
-      : `Subnets disponibles: ${dhcpSubnets.length} (usar el UUID en el campo subnet).`;
-    const subnetCard = el("section", { class: "card span-12", "aria-label": "DHCP subnets disponibles" }, [
-      el("p", { class: "title", text: "[ subnets Kea ]" }),
-      el("p", { class: "dim", text: subnetHint }),
-    ]);
+    const subnetForm = crudForm({
+      titleText: "[ nueva subnet Kea ]",
+      fields: [
+        { key: "subnet", label: "CIDR (192.168.99.0/24)" },
+        { key: "pools", label: "Pools (192.168.99.100-200, opcional)" },
+        { key: "next_server", label: "Next server (TFTP, opcional)" },
+        { key: "description", label: "Descripción" },
+      ],
+      formState: dhcpSubnetForm, busy: dhcpSubnetBusy, error: dhcpSubnetError, onSubmit: dhcpSubnetCreate,
+    });
+    const subnetTable = crudTable({
+      titleText: "subnets Kea existentes",
+      rows: dhcpSubnets,
+      columns: [
+        { h: "CIDR", k: "subnet", cls: "mono" },
+        { h: "Pools", k: "pools", cls: "dim" },
+        { h: "Next server", k: "next_server", cls: "mono" },
+        { h: "UUID", k: "uuid", cls: "mono dim" },
+        { h: "Descripción", k: "description" },
+      ],
+      onDelete: dhcpSubnetDelete, busy: dhcpSubnetBusy,
+    });
     const form = crudForm({
       titleText: "[ nueva reservation DHCP ]",
       fields: [
@@ -1744,7 +1795,7 @@
       ],
       onDelete: dhcpDelete, busy: dhcpBusy,
     });
-    main.replaceChildren(subnetCard, form, table);
+    main.replaceChildren(subnetForm, subnetTable, form, table);
     main.setAttribute("aria-busy", "false");
   }
 

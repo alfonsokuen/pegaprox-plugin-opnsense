@@ -4,9 +4,21 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.12+)
-- Kea subnet writer (today: list-only via `searchSubnet`; subnet management belongs in a dedicated writer when a use-case appears).
+### Planned (v1.13+)
+- DHCP `option_data.*` (DNS servers, routers, classless static routes) in the subnet writer — currently only base fields (CIDR / pools / next_server / match-client-id / description) are exposed; advanced options stay GUI-managed.
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
+
+## [1.12.0] — 2026-05-11
+
+### Added
+- **DhcpSubnetWriter** — Kea DHCPv4 subnet CRUD against `/api/kea/dhcpv4/{addSubnet,delSubnet,searchSubnet}` + `/api/kea/service/reconfigure`. Validates IPv4 CIDR (regex `^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$`); accepts pools, next_server, match_client_id, description. Subnet-level DHCP options (DNS servers, routers, static routes) stay out-of-scope for v1.12.0 — promoting them to the dataclass would balloon the surface; operators use the OPNsense GUI for advanced options.
+- **`/api/plugins/opnsense/api/dhcp_subnet`** — sibling endpoint to `/api/dhcp` (reservations). GET lists subnets; POST `{action: "create"|"delete"}` writes (HTTP 403 when read_only).
+- **DHCP tab** gains a subnet sub-section above reservations: form + table, same `crudForm`/`crudTable` helpers. The earlier subnet-hint card is replaced — operators can now create a subnet from the plugin instead of dropping into OPNsense GUI first.
+
+### Verified
+- 8 new unit tests in `test_dhcp_subnet_unit.py`: payload shape (full `subnet4` envelope), CIDR validation (4 invalid cases), `match-client-id` boolean → string serialization, apply success, rollback on apply fail, list payload, read-only refusal, route validation. Suite total: **157 unit tests passing**, ruff clean.
+- HTML endpoint test extended with `../api/dhcp_subnet`.
+- Live probe confirmed: `addSubnet 10.99.99.0/24 → uuid d99523bc-... → delSubnet` round-trip OK against lab.
 
 ## [1.11.1] — 2026-05-11
 

@@ -136,7 +136,7 @@ def test_html_uses_per_tab_endpoints():
     for ep in ("../api/overview", "../api/network", "../api/logs",
                "../api/nat", "../api/one_to_one",
                "../api/unbound", "../api/unbound_domains", "../api/unbound_dots",
-               "../api/dhcp", "../api/wg"):
+               "../api/dhcp", "../api/dhcp_subnet", "../api/wg"):
         assert ep in body, f"missing endpoint reference: {ep}"
 
 
