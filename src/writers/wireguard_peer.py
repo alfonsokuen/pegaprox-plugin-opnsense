@@ -133,7 +133,7 @@ class WireguardPeerWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchClient")
+        return self.ha.verify_robust(f"{self.BASE}/searchClient")
 
     def _record(
         self, action: str, target: str, result: str,

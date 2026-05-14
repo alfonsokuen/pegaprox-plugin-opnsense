@@ -137,7 +137,7 @@ class DhcpReservationWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchReservation")
+        return self.ha.verify_robust(f"{self.BASE}/searchReservation")
 
     def _record(
         self, action: str, target: str, result: str,

@@ -125,7 +125,7 @@ class UnboundWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchHostOverride")
+        return self.ha.verify_robust(f"{self.BASE}/searchHostOverride")
 
     def _record(
         self, action: str, target: str, result: str,
@@ -255,7 +255,7 @@ class UnboundDotWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchForward")
+        return self.ha.verify_robust(f"{self.BASE}/searchForward")
 
     def _record(
         self, action: str, target: str, result: str,
@@ -385,7 +385,7 @@ class UnboundDomainWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchForward")
+        return self.ha.verify_robust(f"{self.BASE}/searchForward")
 
     def _record(
         self, action: str, target: str, result: str,

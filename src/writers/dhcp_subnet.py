@@ -131,7 +131,7 @@ class DhcpSubnetWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchSubnet")
+        return self.ha.verify_robust(f"{self.BASE}/searchSubnet")
 
     def _record(
         self, action: str, target: str, result: str,

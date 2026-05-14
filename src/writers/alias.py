@@ -163,7 +163,7 @@ class AliasWriter:
     def _maybe_sync(self) -> SyncResult | None:
         if self.ha is None:
             return None
-        return self.ha.verify(f"{self.BASE}/searchItem")
+        return self.ha.verify_robust(f"{self.BASE}/searchItem")
 
     def _record(
         self, action: str, target: str, result: str,
@@ -201,6 +201,9 @@ def alias_result_to_dict(res: AliasResult) -> dict[str, Any]:
                 "local_fingerprint": res.sync.local_fingerprint,
                 "peer_fingerprint": res.sync.peer_fingerprint,
                 "detail": res.sync.detail,
+                "attempts": res.sync.attempts,
+                "revision_local": res.sync.revision_local,
+                "revision_peer": res.sync.revision_peer,
             }
         ),
         "audit": None if res.audit is None else asdict(res.audit),

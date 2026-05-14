@@ -4,9 +4,27 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ## [Unreleased]
 
-### Planned (v1.14+)
-- **Post-write replication verification** — poll backup until the just-written object's uuid appears or N-second timeout; surface `replication_status: pending|replicated|missing` in the writer response.
-- **Per-rule firewall / NAT / alias-content divergence** — extend `compute_divergence` to walk listing endpoints from every writer (aliases full members, rules, NAT, Unbound entries, DHCP reservations, WireGuard peers).
+### Planned (v1.15+)
+- **Per-rule firewall / NAT / alias-content divergence** — extend `compute_divergence` to walk listing endpoints from every writer (aliases full members, rules, NAT, Unbound entries, DHCP reservations, WireGuard peers). Side-by-side Diff tab.
+- **Cluster generalisation >2 nodes** — refactor `OPNsenseClusterClient` from A/B to N-node list; N-column overview; pairwise divergence.
+- **Auto failover orchestration** — guard-railed `/api/cluster/failover` (divergence=0, peer reachable, quorum if ≥3) with two-phase UI confirmation and `cluster:failover` permission gate.
+
+## [1.14.0] — 2026-05-14
+
+### Added
+- **`HAVerifier.verify_robust(search_path)`** — list-fingerprint comparison with linear backoff retry (default 5 attempts × `0.4 × n` seconds), so the verifier tolerates pfSync propagation lag instead of failing on the first sub-second peer read. If fingerprints never converge, the verifier additionally fetches `config_revision` from both nodes so the diagnostic distinguishes *"peer never replicated"* from *"peer replicated something else"* (concurrent write).
+- **`HAVerifier.verify_item(search_path, uuid_field, uuid_value, *, expect_present=True, ...)`** — per-UUID confirmation that the specific row just written (or just deleted, with `expect_present=False`) is reflected on the peer. Stronger guarantee than list fingerprints for callers that have the UUID at hand.
+- **`HAVerifier.verify_revision(*, trigger_sync=True, ...)`** — captures `config_revision` from local and peer and retries until they match. Closes the silent-failure mode where `/api/core/hasync/syncTo` returns HTTP 200 but the peer's running config never actually advances (brief §9 "syncTo 200 with partial sync").
+- **`SyncResult` extended** with `attempts: int`, `revision_local: str`, `revision_peer: str`. Backward-compatible: existing fields preserved. The shared `alias_result_to_dict` serializer now exposes the new fields so the UI/audit layer can surface retry counts and revision parity for every writer.
+
+### Changed
+- **All 8 writers (`alias`, `rule`, `nat`, `one_to_one`, `dhcp`, `dhcp_subnet`, `unbound` × 3 sub-writers, `wireguard_peer`) switched from `verify(path)` to `verify_robust(path)`** in their `_maybe_sync()` step. Every successful write now retries the peer fingerprint comparison up to 5 times with backoff before declaring divergence, and a divergence outcome carries revision context.
+- Legacy `HAVerifier.verify(path)` preserved verbatim for external callers still depending on the single-shot contract.
+
+### Notes
+- Default retry budget (5 × 0.4s linear backoff) totals ~6s worst-case per write. Acceptable for the interactive UI flow; bulk callers should pass smaller `max_attempts` if latency is the binding constraint.
+- Test coverage: 14 new unit tests in `tests/test_hasync_verifier_v114_unit.py` covering happy path, propagation-lag retry, never-converges, delete semantics (`expect_present=False`), syncTo failure, peer fetch raising, revision parity, revision mismatch, and legacy `verify()` compat. Full suite: **200 passed, 19 skipped (live e2e), 0 failed.**
+
 - DHCP `option_data.*` (DNS servers, routers, classless static routes) in the subnet writer — currently only base fields are exposed; advanced options stay GUI-managed.
 - Port-forwarding (rdr) — **out-of-scope until OPNsense ships an API**. `/api/firewall/{forward,portfwd,nat}/searchRule` all return HTTP 404 on 26.1.2; rdr is GUI/XML-config only today.
 
