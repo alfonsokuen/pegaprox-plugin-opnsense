@@ -2,7 +2,7 @@
 
 Monitor and configure OPNsense firewalls (HA-aware) from the PegaProx dashboard.
 
-[![version](https://img.shields.io/badge/version-1.11.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.14.1-blue)](CHANGELOG.md)
 [![pegaprox](https://img.shields.io/badge/pegaprox-0.9.9.3+-orange)](https://github.com/PegaProx/project-pegaprox)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11+-yellow)](#development)
@@ -76,7 +76,7 @@ Hash-routed (`#overview`, `#network`, `#vpn`, `#logs`, `#nat`, `#dns`, `#dhcp`, 
 | **DHCP** | Kea DHCPv4 reservations (subnet UUID + IP + MAC + hostname) |
 | **WG peers** | WireGuard peer CRUD (name, pubkey, tunnel address, keepalive, optional PSK) |
 
-Theme-aware: PegaProx passes `?theme=corp-light|corp-dark` and the plugin honours both. Tokens lifted from `docker_swarm/swarm.html` so the iframe blends with the host dashboard.
+Theme-aware: PegaProx passes `?theme=corp-light|corp-dark|cloud` and the plugin honours all three (the **cloud** value repaints it with the Modern view tokens — deep-blue surfaces, cyan accent). Tokens lifted from `docker_swarm/swarm.html` so the iframe blends with the host dashboard.
 
 ## Install
 

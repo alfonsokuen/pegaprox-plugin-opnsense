@@ -9,6 +9,15 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - **Cluster generalisation >2 nodes** — refactor `OPNsenseClusterClient` from A/B to N-node list; N-column overview; pairwise divergence.
 - **Auto failover orchestration** — guard-railed `/api/cluster/failover` (divergence=0, peer reachable, quorum if ≥3) with two-phase UI confirmation and `cluster:failover` permission gate.
 
+## [1.14.1] — 2026-06-12
+
+### Added
+- **Cloud (Modern view) theme.** When PegaProx embeds the plugin with
+  `?theme=cloud`, the frontend adds a `theme-cloud` class that repaints it with
+  the Modern view design tokens (deep-blue surfaces, cyan accent, rounded cards)
+  so it blends into the new layout. Additive CSS + one branch in the existing
+  theme-detection IIFE; `corp-light`/`corp-dark`/dark behaviour unchanged.
+
 ## [1.14.0] — 2026-05-14
 
 ### Added

@@ -35,6 +35,22 @@
     --muted: #4b5563; /* gray-600; ensures 4.5:1 on white --card */
     --row-hover: rgba(0, 0, 0, 0.025);
   }
+  /* NS 2026-06 — Cloud (Modern view) theme: literal --cloud-* palette from the
+     host, since an iframe can't inherit the parent's CSS variables. Applied when
+     PegaProx embeds with ?theme=cloud. */
+  html.theme-cloud {
+    --accent: #22d3ee;
+    --bg: #060f1e;
+    --card: #16304a;
+    --border: #1e3a52;
+    --text: #e6f1f8;
+    --muted: #8aa4b8;
+    --green: #2dd4a7;
+    --red: #f87171;
+    --yellow: #f5b945;
+    --blue: #38bdf8;
+    --row-hover: rgba(34, 211, 238, 0.06);
+  }
 
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -709,7 +725,9 @@
   (function applyTheme() {
     const params = new URLSearchParams(location.search);
     const theme = params.get("theme") || "";
-    if (/light/i.test(theme)) {
+    if (/^cloud/i.test(theme)) {
+      document.documentElement.classList.add("theme-cloud");
+    } else if (/light/i.test(theme)) {
       document.documentElement.classList.add("theme-light");
     }
   })();
