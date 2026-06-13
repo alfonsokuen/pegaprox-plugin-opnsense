@@ -13,13 +13,19 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 
 ### Fixed
 - **Overview stuck on "Cargando estado del cluster…" with `TypeError: Cannot read
-  properties of undefined (reading 'memory_used_pct')`.** In HA cluster mode the
-  `/overview` endpoint returns cluster-shaped data, but on first paint (or a 10s
-  refresh re-entering before `cluster.enabled` was set) the single-node renderer
-  ran and read `data.system.memory_used_pct` on an absent `system`. `renderOverview`
-  now detects a cluster payload and delegates to `renderClusterOverview` (self-healing
-  the `cluster.enabled` flag), and `cellSystem` defaults a missing snapshot. Backend
-  was always healthy; this was a frontend render guard only.
+  properties of undefined`** (first on `system.memory_used_pct`, then `hasync.enabled`).
+  Root cause: `fetchJson` unwraps the response envelope to `body.data`, but the cluster
+  renderers (`renderClusterBar`, `renderClusterOverview`) and the single-node
+  `renderOverview` were fed shapes they didn't expect. In HA cluster mode `/overview`
+  returns the inner `{divergence,master,names,nodes}`; the single-node renderer ran
+  (before `cluster.enabled` flipped, or on the 10s refresh) and read absent
+  `system`/`hasync` fields. Fixes: `renderOverview` now detects the cluster shape
+  (`.nodes && !.system`), re-wraps it as `{ data }` and delegates to
+  `renderClusterOverview` (self-healing `cluster.enabled`); the patched cluster path
+  and `refreshClusterBar` now pass `{ ok: true, data }` so `renderClusterBar`/
+  `renderClusterOverview` receive the envelope they expect; `cellSystem` defaults a
+  missing snapshot. Backend was always healthy — this was entirely a frontend
+  data-shape/guard bug.
 
 ## [1.14.1] — 2026-06-12
 

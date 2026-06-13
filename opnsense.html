@@ -1160,15 +1160,17 @@
   }
 
   function renderOverview(data) {
-    // The /overview endpoint returns cluster-shaped data ({cluster:true,data:{nodes}})
-    // when HA cluster mode is active. If this single-node renderer is reached before
+    // In HA cluster mode the /overview endpoint returns cluster-shaped data. After
+    // fetchJson unwraps the envelope, this renderer receives the inner object
+    // {divergence,master,names,nodes} (no top-level system/hasync). If reached before
     // `cluster.enabled` flips (first-paint race, or the 10s refresh re-entering before
-    // cluster init), delegate to the cluster renderer instead of reading single-node
-    // fields that don't exist — was a TypeError on system.memory_used_pct that left the
-    // overview stuck on "Cargando…". Self-heal the flag so later refreshes route right. -- NS
-    if (data && data.cluster === true) {
+    // cluster init), the single-node cells read fields that don't exist — was a
+    // TypeError (system.memory_used_pct, then hasync.enabled) that left the overview
+    // stuck on "Cargando…". Detect the cluster shape via `.nodes`, re-wrap it the way
+    // renderClusterOverview expects (`payload.data`), and self-heal the flag. -- NS
+    if (data && data.nodes && !data.system) {
       cluster.enabled = true;
-      return renderClusterOverview(data);
+      return renderClusterOverview({ data });
     }
     data = data || {};
     return [
@@ -2591,7 +2593,7 @@
     try {
       const data = await fetchJson(ENDPOINTS.cluster);
       cluster.lastCluster = data;
-      renderClusterBar(data);
+      renderClusterBar({ ok: true, data });
     } catch (e) {
       // 400 single_host is expected; other errors are silent in the bar
       // because the per-tab fetch will surface its own error.
@@ -2643,8 +2645,8 @@
       try {
         const data = await fetchJson(ENDPOINTS.cluster);
         cluster.lastCluster = data;
-        renderClusterBar(data);
-        const nodes = renderClusterOverview(data);
+        renderClusterBar({ ok: true, data });
+        const nodes = renderClusterOverview({ data });
         main.replaceChildren(...nodes);
         applyStagger();
         main.setAttribute("aria-busy", "false");
