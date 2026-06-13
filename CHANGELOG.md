@@ -9,6 +9,18 @@ All notable changes to this project will be documented here. Format: [Keep a Cha
 - **Cluster generalisation >2 nodes** — refactor `OPNsenseClusterClient` from A/B to N-node list; N-column overview; pairwise divergence.
 - **Auto failover orchestration** — guard-railed `/api/cluster/failover` (divergence=0, peer reachable, quorum if ≥3) with two-phase UI confirmation and `cluster:failover` permission gate.
 
+## [1.14.2] — 2026-06-12
+
+### Fixed
+- **Overview stuck on "Cargando estado del cluster…" with `TypeError: Cannot read
+  properties of undefined (reading 'memory_used_pct')`.** In HA cluster mode the
+  `/overview` endpoint returns cluster-shaped data, but on first paint (or a 10s
+  refresh re-entering before `cluster.enabled` was set) the single-node renderer
+  ran and read `data.system.memory_used_pct` on an absent `system`. `renderOverview`
+  now detects a cluster payload and delegates to `renderClusterOverview` (self-healing
+  the `cluster.enabled` flag), and `cellSystem` defaults a missing snapshot. Backend
+  was always healthy; this was a frontend render guard only.
+
 ## [1.14.1] — 2026-06-12
 
 ### Added

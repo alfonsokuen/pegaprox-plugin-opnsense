@@ -1003,6 +1003,7 @@
 
   // ---------- overview cells ----------
   function cellSystem(s) {
+    s = s || {};   // defense-in-depth: never throw on a missing system snapshot -- NS
     const memPct = s.memory_used_pct || 0;
     const pfPct = s.pf_states_pct || 0;
     return el("section", { class: "card span-4", "aria-label": "Sistema" }, [
@@ -1159,6 +1160,17 @@
   }
 
   function renderOverview(data) {
+    // The /overview endpoint returns cluster-shaped data ({cluster:true,data:{nodes}})
+    // when HA cluster mode is active. If this single-node renderer is reached before
+    // `cluster.enabled` flips (first-paint race, or the 10s refresh re-entering before
+    // cluster init), delegate to the cluster renderer instead of reading single-node
+    // fields that don't exist — was a TypeError on system.memory_used_pct that left the
+    // overview stuck on "Cargando…". Self-heal the flag so later refreshes route right. -- NS
+    if (data && data.cluster === true) {
+      cluster.enabled = true;
+      return renderClusterOverview(data);
+    }
+    data = data || {};
     return [
       cellSystem(data.system),
       cellHA(data.hasync),
