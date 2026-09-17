@@ -1,38 +1,19 @@
-# API surface
+﻿# API surface
 
-Plugin endpoints (mounted under `/api/plugins/opnsense`):
+All routes use `/api/plugins/opnsense/api/` as prefix and require a PegaProx session or API token with `plugins.view`.
 
-| Method | Path | Purpose |
+| Methods | Route | Purpose |
 |---|---|---|
-| GET | `/api/health` | Plugin status + config sanity (scaffold-ready) |
-| GET | `/api/ui` | UI shell (`opnsense.html`) |
-| GET | `/api/overview` | Aggregated dashboard payload _(v1)_ |
-| GET | `/api/interfaces` | Per-iface stats _(v1)_ |
-| GET | `/api/gateways` | Gateway monitor table _(v1)_ |
-| GET | `/api/vpn/{type}` | WireGuard / IPsec / OpenVPN peers _(v1)_ |
-| GET | `/api/logs` | Filtered log stream _(v1)_ |
-| GET\|POST\|PUT\|DELETE | `/api/aliases[/{uuid}]` | CRUD aliases _(v1)_ |
-| GET\|POST\|PUT\|DELETE | `/api/rules[/{uuid}]` | CRUD firewall rules _(v1)_ |
-| POST | `/api/apply` | Apply pending changes + sync HA + verify _(v1)_ |
-| GET | `/metrics` | Prometheus exporter _(v1)_ |
+| GET | `health` | Version from manifest, configuration presence and read-only state |
+| GET | `ui` | Plugin HTML |
+| GET | `overview`, `cluster` | Monitoring and HA state |
+| GET | `network`, `logs` | Interfaces, gateways, routes, neighbors and log tail |
+| GET | `metrics` | Prometheus exporter |
+| GET, POST | `port_forward`, `rules`, `aliases` | Verified firewall management added in 1.15.0 |
+| GET, POST | `nat`, `one_to_one` | Existing source NAT and 1:1 NAT management |
+| GET, POST | `unbound`, `unbound_domains`, `unbound_dots` | DNS overrides and forwarding |
+| GET, POST | `dhcp`, `dhcp_subnet`, `wg` | Kea reservations/subnets and WireGuard peers |
 
-## Upstream OPNsense endpoints consumed
-Validate names against your installed OPNsense version. Starting set:
+The new management routes additionally require `plugins.manage` for POST and explicit `read_only:false`. Update/delete use POST actions with UUID and original revision; they are not HTTP PUT/DELETE endpoints. See [full management contract](FIREWALL_MANAGEMENT.md).
 
-- `/api/diagnostics/system/system_information`
-- `/api/core/hasync/get` + `/api/core/hasync/syncTo`
-- `/api/diagnostics/traffic/interface`
-- `/api/diagnostics/firewall/pf_states`
-- `/api/diagnostics/system/systemResources`
-- `/api/routes/gateway/status`
-- `/api/diagnostics/interface/getRoutes`
-- `/api/ipsec/sessions/search_phase1` + `_phase2`
-- `/api/wireguard/service/show`
-- `/api/openvpn/service/searchSessions`
-- `/api/core/service/search`
-- `/api/diagnostics/firewall/log`
-- `/api/trust/cert/search`
-- `/api/firewall/alias/{addItem,delItem,setItem,reconfigure}`
-- `/api/firewall/filter/{addRule,delRule,setRule,apply}`
-
-All requests use `Authorization: Basic base64(key:secret)` over HTTPS.
+Requests to OPNsense use API key/secret Basic authentication over HTTPS. Native DNAT is `/api/firewall/d_nat/*`; rules use `/api/firewall/filter/*`; aliases use `/api/firewall/alias/*`. Availability and permissions are reported separately. The new routes observe HA propagation rather than invoking an unsupported core sync action.

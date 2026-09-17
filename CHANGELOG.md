@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.15.0] - 2026-09-17
+
+### Added
+- Native Destination NAT (port forwarding) CRUD through OPNsense `d_nat`, with explicit filter association, readback and audit evidence.
+- Firewall tab exposing rules and aliases create/edit/delete through registered PegaProx routes.
+- All management routes require `plugins.manage` for writes and respect `read_only`. HA writes require freshly confirmed complementary CARP states; ambiguous or mixed ownership fails closed.
+- Checked HTTP-200 validation/apply results, no automatic write retries, explicit partial/rollback outcomes and actual peer readback. Alias API responses exclude credential fields.
+- Local browser E2E harness exercises real Flask routes and HTTPS client against a stateful OPNsense simulator.
+
+### Fixed
+- Health and startup version now derive from manifest.json, avoiding the stale 1.14.0/1.12.0 literals.
+- Destination NAT was previously documented as unavailable: the official 26.1.2 controller is `d_nat`, not `forward`, `portfwd` or `nat`.
+
+### Operational notes
+- Existing configuration and read-only production mode are preserved.
+- New management routes observe automatic HA propagation; they do not invoke the nonexistent `core/hasync/syncTo` action used by older writers. Legacy writers are outside this release's migration scope.
+- Stored configuration verification does not certify packet delivery. A real isolated firewall write test remains necessary before enabling these features for production writes.
+
 ## [Unreleased]
 
 ### Planned (v1.15+)

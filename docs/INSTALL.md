@@ -21,5 +21,5 @@ curl -sk https://YOUR_PEGAPROX/api/plugins/opnsense/api/health | jq
 ```
 Expected:
 ```json
-{"plugin":"opnsense","version":"0.1.0","configured":true,"read_only":false}
+{"plugin":"opnsense","version":"1.15.0","configured":true,"read_only":false}
 ```

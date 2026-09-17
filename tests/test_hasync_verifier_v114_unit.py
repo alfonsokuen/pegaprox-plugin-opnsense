@@ -9,7 +9,6 @@ Covers:
 """
 from __future__ import annotations
 
-import pytest
 import responses
 
 from src.client import OPNsenseClient, OPNsenseHost

@@ -23,6 +23,7 @@ class _MinimalParser(HTMLParser):
         self.has_module_script = False
         self.has_viewport_meta = False
         self.has_color_scheme_meta = False
+        self.selected_tabs = 0
 
     def error(self, message: str) -> None:  # pragma: no cover - parser API
         self.errors.append(message)
@@ -30,6 +31,8 @@ class _MinimalParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.tags.append(tag)
         attr_dict = {k: v for k, v in attrs}
+        if tag == "button" and attr_dict.get("role") == "tab" and attr_dict.get("aria-selected") == "true":
+            self.selected_tabs += 1
         if tag == "script" and attr_dict.get("type") == "module":
             self.has_module_script = True
         if tag == "meta":
@@ -120,21 +123,23 @@ def test_html_includes_aria_landmarks_and_busy_state():
             or 'aria-label="Refrescar vista"' in body)
 
 
-def test_html_has_tablist_with_eight_tabs():
+def test_html_has_tablist_with_nine_tabs():
     body = _content()
     assert 'role="tablist"' in body, "missing tablist landmark"
-    for tab in ("overview", "network", "vpn", "logs", "nat", "dns", "dhcp", "wg"):
+    for tab in ("overview", "network", "vpn", "logs", "nat", "firewall", "dns", "dhcp", "wg"):
         assert f'data-tab="{tab}"' in body, f"missing tab: {tab}"
     # Exactly one tab must declare aria-selected="true" in markup
     # (excluding the CSS selector that also contains the same string).
-    in_markup = re.findall(r'<button[^>]*aria-selected="true"[^>]*>', body)
-    assert len(in_markup) == 1
+    parser = _MinimalParser()
+    parser.feed(body)
+    assert parser.selected_tabs == 1
 
 
 def test_html_uses_per_tab_endpoints():
     body = _content()
     for ep in ("../api/overview", "../api/network", "../api/logs",
-               "../api/nat", "../api/one_to_one",
+               "../api/nat", "../api/one_to_one", "../api/port_forward",
+               "../api/rules", "../api/aliases",
                "../api/unbound", "../api/unbound_domains", "../api/unbound_dots",
                "../api/dhcp", "../api/dhcp_subnet", "../api/wg",
                # v1.13.0 — health probe + cluster bar

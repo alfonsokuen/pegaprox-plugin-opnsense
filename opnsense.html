@@ -652,6 +652,30 @@
     #grid > .cluster-grid > .node-col > .card,
     #grid > .diverge-card { animation: none; }
   }
+  /* Firewall editors share the established PegaProx tokens. */
+  .managed-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .grid > .card { min-width: 0; }
+  .managed-fields > label { min-width: 0; }
+  .managed-fields input { min-width: 0; width: 100%; }
+  .managed-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; color: var(--muted); font-size: 12px; }
+  .managed-field input, .managed-field select, .managed-field textarea { width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  .managed-field textarea { min-height: 90px; resize: vertical; }
+  .managed-field:has(textarea) { grid-column: 1 / -1; }
+  .managed-check { flex-direction: row; align-items: center; min-height: 44px; }
+  .managed-check input { width: 18px; min-height: 18px; accent-color: var(--accent); }
+  .managed-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  .managed-table { position: relative; overflow-x: auto; max-width: 100%; }
+  .managed-message { margin: 10px 0; overflow-wrap: anywhere; }
+  .managed-error { color: #fca5a5; }
+  .theme-light .managed-error { color: #b91c1c; }
+  .managed-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  #grid > .managed-editor, #grid > .managed-table { animation: none; }
+  .managed-editor button:disabled { opacity: .55; cursor: not-allowed; }
+  @media (max-width: 768px) {
+    .managed-field input, .managed-field select, .managed-field textarea { font-size: 16px; min-height: 44px; }
+    .managed-check input { min-height: 20px; }
+    .managed-editor .btn, .managed-table .btn { min-height: 44px; }
+  }
 </style>
 </head>
 <body>
@@ -693,6 +717,7 @@
     <button class="tab" role="tab" id="tab-vpn" data-tab="vpn" aria-selected="false" aria-controls="grid">VPN</button>
     <button class="tab" role="tab" id="tab-logs" data-tab="logs" aria-selected="false" aria-controls="grid">Logs</button>
     <button class="tab" role="tab" id="tab-nat" data-tab="nat" aria-selected="false" aria-controls="grid">NAT</button>
+    <button class="tab" role="tab" id="tab-firewall" data-tab="firewall" aria-selected="false" aria-controls="grid">Firewall</button>
     <button class="tab" role="tab" id="tab-dns" data-tab="dns" aria-selected="false" aria-controls="grid">DNS</button>
     <button class="tab" role="tab" id="tab-dhcp" data-tab="dhcp" aria-selected="false" aria-controls="grid">DHCP</button>
     <button class="tab" role="tab" id="tab-wg" data-tab="wg" aria-selected="false" aria-controls="grid">WG peers</button>
@@ -961,6 +986,9 @@
     network: "../api/network",
     logs: "../api/logs",
     nat: "../api/nat",
+    portForward: "../api/port_forward",
+    firewallRules: "../api/rules",
+    firewallAliases: "../api/aliases",
     oneToOne: "../api/one_to_one",
     dhcp: "../api/dhcp",
     dhcpSubnet: "../api/dhcp_subnet",
@@ -1516,7 +1544,7 @@
     const card = el("section", { class: "card span-12", "aria-label": "Crear regla NAT" }, [
       el("p", { class: "title" }, "[ nueva regla source NAT ]"),
     ]);
-    const grid = el("div", { style: "display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 8px;" });
+    const grid = el("div", { class: "managed-fields", style: "margin-top: 8px;" });
     const inputs = [
       ["interface", "Interface (wan/lan)", "text", false],
       ["target", "Target IP/alias", "text", false],
@@ -1554,7 +1582,7 @@
   }
 
   function natTable() {
-    const card = el("section", { class: "card span-12", "aria-label": "Reglas source NAT" }, [
+    const card = el("section", { class: "card span-12 managed-table", "aria-label": "Reglas source NAT" }, [
       el("p", { class: "title", text: `[ reglas existentes (${natRules.length}) ]` }),
     ]);
     const table = el("table", { class: "tt" });
@@ -1660,16 +1688,262 @@
       ],
       onDelete: oneToOneDelete, busy: oneToOneBusy,
     });
-    main.replaceChildren(natForm(), natTable(), oneToOneCreateForm, oneToOneTable);
+    main.replaceChildren(...managedSections("portForward"), natForm(), natTable(), oneToOneCreateForm, oneToOneTable);
     main.setAttribute("aria-busy", "false");
   }
+
+  // ---------- Verified firewall CRUD: keep drafts and partial failures visible ----------
+  const firewallFields = [
+    { key: "interface", label: "Interfaz", required: true },
+    { key: "ipprotocol", label: "Familia IP", options: [["inet", "IPv4"], ["inet6", "IPv6"], ["inet46", "IPv4 + IPv6"]] },
+    { key: "protocol", label: "Protocolo", options: ["any", "tcp", "udp", "tcp/udp", "icmp", "icmp6"] },
+    { key: "source_net", label: "Origen: IP, red o alias", required: true },
+    { key: "source_port", label: "Puerto de origen (vacío: cualquiera)" },
+    { key: "destination_net", label: "Destino: IP, red o alias", required: true },
+    { key: "destination_port", label: "Puerto de destino (vacío: cualquiera)" },
+  ];
+  const managedSpecs = {
+    portForward: {
+      title: "Port forwarding (DNAT)", item: "rule", rows: "rules", tab: "nat",
+      help: "Redirige conexiones al destino interno. La asociación de filtrado es explícita; revisa origen y destino antes de aplicar.",
+      defaults: { interface: "wan", ipprotocol: "inet", protocol: "tcp", source_net: "any", source_port: "", destination_net: "", destination_port: "", target: "", target_port: "", description: "", enabled: false, log: false, sequence: 1, filter_association: "", natreflection: "" },
+      fields: [...firewallFields.map(field => field.key === "protocol" ? { ...field, options: ["tcp", "udp", "tcp/udp"] } : field.key === "destination_port" ? { ...field, label: "Puerto de destino", required: true } : field),
+        { key: "target", label: "IP o alias interno", required: true },
+        { key: "target_port", label: "Puerto interno", required: true },
+        { key: "filter_association", label: "Asociación de filtrado", options: [["", "Manual: requiere regla de firewall"], ["pass", "Permitir en esta regla NAT"], ["rule", "Crear regla de filtrado asociada"]] },
+        { key: "natreflection", label: "NAT reflection", options: [["", "Predeterminado del sistema"], ["purenat", "Habilitado"], ["disable", "Deshabilitado"]] },
+        { key: "sequence", label: "Orden", type: "number" },
+        { key: "description", label: "Descripción" },
+        { key: "enabled", label: "Habilitada", type: "checkbox" },
+        { key: "log", label: "Registrar conexiones", type: "checkbox" }],
+      columns: [["Interfaz", "interface"], ["Origen", "source_net"], ["Destino", "destination_net"], ["Puerto", "destination_port"], ["IP interna", "target"], ["Puerto interno", "target_port"], ["Protocolo", "protocol"], ["Descripción", "description"]],
+    },
+    firewallRules: {
+      title: "Reglas de firewall", item: "rule", rows: "rules", tab: "firewall",
+      help: "Reglas administradas por la API de OPNsense. Una regla nueva se crea deshabilitada hasta que marques Habilitada.",
+      defaults: { interface: "wan", action: "block", direction: "in", ipprotocol: "inet", protocol: "any", source_net: "any", source_port: "", destination_net: "any", destination_port: "", description: "", enabled: false, log: false, quick: true, sequence: 1 },
+      fields: [
+        { key: "action", label: "Acción", options: [["pass", "Permitir"], ["block", "Bloquear"], ["reject", "Rechazar"]] },
+        { key: "direction", label: "Dirección", options: [["in", "Entrada"], ["out", "Salida"]] },
+        ...firewallFields,
+        { key: "sequence", label: "Orden", type: "number" },
+        { key: "description", label: "Descripción" },
+        { key: "enabled", label: "Habilitada", type: "checkbox" },
+        { key: "log", label: "Registrar conexiones", type: "checkbox" },
+        { key: "quick", label: "Detener al coincidir (quick)", type: "checkbox" }],
+      columns: [["Orden", "sequence"], ["Interfaz", "interface"], ["Acción", "action"], ["Dirección", "direction"], ["Origen", "source_net"], ["Destino", "destination_net"], ["Puerto", "destination_port"], ["Descripción", "description"]],
+    },
+    firewallAliases: {
+      title: "Aliases", item: "alias", rows: "aliases", tab: "firewall",
+      help: "Agrupa hosts, redes o puertos para reutilizarlos en reglas. Escribe un valor por línea en Contenido.",
+      defaults: { name: "", type: "host", content: "", description: "", enabled: true, proto: "" },
+      fields: [
+        { key: "name", label: "Nombre", required: true },
+        { key: "type", label: "Tipo", options: ["host", "network", "port", "url", "urltable", "geoip", "external"] },
+        { key: "description", label: "Descripción" },
+        { key: "proto", label: "Familia IP (opcional)", options: [["", "Predeterminada"], ["IPv4", "IPv4"], ["IPv6", "IPv6"], ["IPv4,IPv6", "IPv4 + IPv6"]] },
+        { key: "content", label: "Contenido", type: "textarea" },
+        { key: "enabled", label: "Habilitado", type: "checkbox" }],
+      columns: [["Nombre", "name"], ["Tipo", "type"], ["Contenido", "content"], ["Descripción", "description"]],
+    },
+  };
+  const managedState = Object.fromEntries(Object.entries(managedSpecs).map(([key, spec]) => [key, {
+    rows: [], draft: { ...spec.defaults }, uuid: "", revision: "", dirty: false, busy: false,
+    reconcileRequired: false, reconcileUuid: "",
+    error: "", listError: "", success: "", loaded: false, readOnly: true, capabilities: {},
+  }]));
+  const asBool = value => value === true || value === 1 || value === "1";
+  const managedBusy = () => Object.values(managedState).some(state => state.busy);
+  const managedDirty = () => Object.values(managedState).some(state => state.dirty || state.reconcileRequired);
+
+  async function managedList(key) {
+    const state = managedState[key], spec = managedSpecs[key];
+    try {
+      const data = await fetchJson(ENDPOINTS[key]);
+      state.rows = data[spec.rows] || [];
+      state.readOnly = data.read_only !== false;
+      state.capabilities = data.capabilities || {};
+      state.loaded = true;
+      state.listError = "";
+    } catch (error) {
+      state.loaded = false;
+      state.capabilities = {};
+      state.listError = error.detail || error.message || "No se pudo consultar OPNsense.";
+    }
+  }
+  function managedCan(key, action) {
+    const state = managedState[key];
+    return state.loaded && !state.readOnly && state.capabilities[action] === true;
+  }
+  function renderManagedTab(key) {
+    if (currentTab !== managedSpecs[key].tab) return;
+    if (currentTab === "nat") renderNatTab(); else renderFirewallTab();
+  }
+  function managedReset(key) {
+    const state = managedState[key];
+    state.draft = { ...managedSpecs[key].defaults };
+    state.uuid = ""; state.revision = ""; state.dirty = false;
+  }
+  function managedFocus(key, selector = "input, select, textarea") {
+    document.querySelector(`#${key}-form ${selector}`)?.focus();
+  }
+  function managedEdit(key, row) {
+    const state = managedState[key], spec = managedSpecs[key];
+    if (!managedCan(key, "update") || managedBusy() || row.editable === false || state.reconcileRequired) return;
+    if (state.dirty && !confirm("¿Descartar los cambios de este formulario?")) return;
+    state.draft = Object.fromEntries(spec.fields.map(field => [field.key,
+      field.type === "checkbox" ? asBool(row[field.key] ?? spec.defaults[field.key]) : row[field.key] ?? spec.defaults[field.key],
+    ]));
+    state.uuid = row.uuid; state.revision = row.revision; state.dirty = false; state.error = ""; state.success = "";
+    renderManagedTab(key); managedFocus(key);
+    document.getElementById(`${key}-form`)?.scrollIntoView({ block: "nearest" });
+  }
+  async function managedWrite(key, action, uuid = "", revision = "") {
+    const state = managedState[key], spec = managedSpecs[key];
+    if (managedBusy() || !managedCan(key, action) || (action === "create" && state.reconcileRequired)) return;
+    if (action === "delete" && !confirm(`¿Eliminar ${spec.title}: ${uuid}?`)) return;
+    const payload = { action };
+    if (uuid) payload.uuid = uuid;
+    if (action !== "create") payload.revision = action === "update" ? state.revision : revision;
+    if (action !== "delete") payload[spec.item] = Object.fromEntries(Object.entries(state.draft).map(([field, value]) => [field, typeof value === "string" ? value.trim() : value]));
+    state.busy = true; state.error = ""; state.success = "";
+    renderManagedTab(key);
+    // A lost response cannot prove that addRule/addItem did not persist.
+    let createOutcomeUncertain = action === "create";
+    try {
+      const response = await fetch(ENDPOINTS[key], {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      const data = result.data || {};
+      if (action === "create") {
+        const rejected = result.ok === false && !data.uuid && data.applied !== true &&
+          ["validation", "bad_request", "read_only", "forbidden", "auth", "unconfigured", "conflict"].includes(data.error || result.error);
+        const reverted = data.rollback?.attempted === true && data.rollback.verified === true;
+        createOutcomeUncertain = !rejected && !reverted;
+        state.reconcileUuid = typeof data.uuid === "string" ? data.uuid : "";
+      }
+      if (!response.ok || result.ok !== true || data.verified !== true || data.applied !== true || (data.sync && data.sync.verified !== true)) {
+        const detail = result.detail || data.detail || data.sync?.detail || result.error || "No se confirmó la aplicación y verificación del cambio.";
+        const rollback = data.rollback?.attempted ? (data.rollback.verified ? " Se verificó la reversión." : " No se confirmó la reversión.") : "";
+        throw new Error(detail + rollback + " Actualiza la lista y revisa el estado antes de repetir la operación.");
+      }
+      if (action !== "delete" || state.uuid === uuid) managedReset(key);
+      state.success = data.sync ? "Cambio aplicado, verificado y sincronizado en HA." : "Cambio aplicado y verificado.";
+      await managedList(key);
+      if (state.listError) state.success = "Cambio aplicado y verificado. No se pudo actualizar la lista.";
+    } catch (error) {
+      // Never refresh here: a successful list must not erase a failed write.
+      state.error = error.message || "Respuesta desconocida. Actualiza la lista antes de repetir la operación.";
+      if (createOutcomeUncertain) state.reconcileRequired = true;
+    } finally {
+      state.busy = false;
+      renderManagedTab(key);
+      if (state.error) managedFocus(key, '[role="alert"]');
+    }
+  }
+  function managedSections(key) {
+    const spec = managedSpecs[key], state = managedState[key];
+    const action = state.uuid ? "update" : "create";
+    const form = el("form", { id: `${key}-form`, class: "card span-12 managed-editor", "aria-label": spec.title, "aria-busy": String(state.busy) });
+    form.appendChild(el("h2", { class: "title", text: `${state.uuid ? "Editar" : "Crear"} · ${spec.title}` }));
+    form.appendChild(el("p", { class: "dim", id: `${key}-help`, text: spec.help }));
+    if (!state.loaded || state.readOnly || !managedCan(key, action)) {
+      form.appendChild(el("p", { class: "managed-message", role: "status", text: !state.loaded ? "Escritura deshabilitada hasta confirmar acceso a la API." : state.readOnly ? "Modo de solo lectura: los cambios están deshabilitados." : "Esta operación no está disponible en el firewall." }));
+    }
+    const fieldset = el("fieldset", { disabled: managedBusy() || !managedCan(key, action) });
+    const fields = el("div", { class: "managed-fields" });
+    for (const field of spec.fields) {
+      const id = `${key}-${field.key}`;
+      const label = el("label", { htmlFor: id, class: "managed-field" + (field.type === "checkbox" ? " managed-check" : "") }, [field.label]);
+      const input = el(field.options ? "select" : field.type === "textarea" ? "textarea" : "input", { id, name: field.key, autocomplete: "off", spellcheck: false, "aria-describedby": `${key}-help` });
+      if (field.options) {
+        const options = field.options.map(option => Array.isArray(option) ? option : [option, option]);
+        // Preserve a valid existing value even when it is not a common choice.
+        const current = String(state.draft[field.key] ?? "");
+        if (!options.some(([value]) => value === current)) options.push([current, current]);
+        for (const [value, text] of options) input.appendChild(el("option", { value, text }));
+      } else if (field.type !== "textarea") input.type = field.type || "text";
+      if (field.type === "checkbox") input.checked = asBool(state.draft[field.key]);
+      else input.value = state.draft[field.key] ?? "";
+      if (field.required) input.required = true;
+      if (field.type === "number") { input.min = "1"; input.step = "1"; }
+      input.addEventListener("input", () => {
+        state.draft[field.key] = field.type === "checkbox" ? input.checked : field.type === "number" && input.value !== "" ? Number(input.value) : input.value;
+        state.dirty = true;
+      });
+      if (field.type === "textarea") input.addEventListener("keydown", event => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); form.requestSubmit(); }
+      });
+      label.appendChild(input); fields.appendChild(label);
+    }
+    fieldset.appendChild(fields); form.appendChild(fieldset);
+    if (state.error) form.appendChild(el("p", { class: "managed-message managed-error", role: "alert", tabIndex: -1, text: state.error }));
+    if (state.reconcileRequired) form.appendChild(el("p", {
+      id: `${key}-reconcile-warning`, class: "managed-message managed-error", role: "status",
+      text: `La creación pudo haberse guardado${state.reconcileUuid ? ` (UUID: ${state.reconcileUuid})` : ""}. Crear está bloqueado para evitar duplicados. Actualiza la lista y comprueba el estado del firewall y sus nodos HA antes de iniciar otro cambio.`,
+    }));
+    if (state.success) form.appendChild(el("p", { class: "managed-message", role: "status", text: state.success }));
+    const actions = el("div", { class: "managed-actions" });
+    actions.appendChild(el("button", { class: "btn btn-primary", type: "submit", disabled: managedBusy() || !managedCan(key, action) || (action === "create" && state.reconcileRequired), "aria-busy": String(state.busy), text: state.busy ? "Aplicando y verificando…" : state.uuid ? "Guardar cambios" : "Crear" }));
+    if (state.reconcileRequired) {
+      const reconcile = el("button", { id: `${key}-reconcile`, class: "btn", type: "button", disabled: managedBusy(), text: "Revisé el estado: iniciar otro cambio" });
+      reconcile.addEventListener("click", () => {
+        if (!confirm("¿Confirmas que revisaste el estado del firewall y sus nodos HA? Se descartará este borrador. Si la entrada ya existe, edítala desde la lista para evitar duplicados.")) return;
+        state.reconcileRequired = false; state.reconcileUuid = "";
+        managedReset(key); state.error = ""; state.success = "";
+        renderManagedTab(key); managedFocus(key);
+      });
+      actions.appendChild(reconcile);
+    }
+    {
+      const cancel = el("button", { class: "btn", type: "button", disabled: managedBusy() || state.reconcileRequired, text: "Cancelar" });
+      cancel.addEventListener("click", () => {
+        if (state.dirty && !confirm("¿Descartar los cambios de este formulario?")) return;
+        managedReset(key); state.error = ""; state.success = ""; renderManagedTab(key); managedFocus(key);
+      });
+      actions.appendChild(cancel);
+    }
+    form.appendChild(actions);
+    form.addEventListener("submit", event => { event.preventDefault(); managedWrite(key, action, state.uuid); });
+    const list = el("section", { class: "card span-12 managed-table", "aria-label": `Lista de ${spec.title}` });
+    list.appendChild(el("h2", { class: "title", text: `${spec.title} · ${state.rows.length}` }));
+    if (state.listError) list.appendChild(el("p", { class: "managed-message managed-error", role: "alert", text: `${state.listError}${state.rows.length ? " Se muestran datos de la última consulta." : ""}` }));
+    const table = el("table", { class: "tt" });
+    const heading = el("tr");
+    for (const text of [...spec.columns.map(([label]) => label), "Estado", "Acciones"]) heading.appendChild(el("th", { scope: "col", text }));
+    table.appendChild(el("thead", {}, [heading]));
+    const tbody = el("tbody");
+    for (const row of state.rows) {
+      const tr = el("tr");
+      for (const [, field] of spec.columns) tr.appendChild(el("td", { text: String(row[field] ?? "—") }));
+      tr.appendChild(el("td", { text: asBool(row.enabled) ? "Habilitada" : "Deshabilitada" }));
+      const cell = el("td");
+      const edit = el("button", { class: "btn", type: "button", disabled: managedBusy() || state.reconcileRequired || !row.uuid || row.editable === false || !managedCan(key, "update"), text: "Editar", "aria-label": `Editar ${row.name || row.description || row.uuid}` });
+      edit.addEventListener("click", () => managedEdit(key, row));
+      const remove = el("button", { class: "btn", type: "button", disabled: managedBusy() || !row.uuid || row.editable === false || !managedCan(key, "delete"), text: "Eliminar", "aria-label": `Eliminar ${row.name || row.description || row.uuid}` });
+      remove.addEventListener("click", () => managedWrite(key, "delete", row.uuid, row.revision));
+      cell.append(edit, document.createTextNode(" "), remove); tr.appendChild(cell); tbody.appendChild(tr);
+    }
+    if (!state.rows.length) tbody.appendChild(el("tr", {}, [el("td", { colSpan: spec.columns.length + 2, class: "dim", text: state.loaded ? "No hay entradas configuradas en esta API." : "Lista no disponible." })]));
+    table.appendChild(tbody); list.appendChild(table);
+    return [form, list];
+  }
+  function renderFirewallTab() {
+    const main = $("#grid");
+    main.replaceChildren(...managedSections("firewallRules"), ...managedSections("firewallAliases"));
+    main.setAttribute("aria-busy", "false");
+  }
+  window.addEventListener("beforeunload", event => {
+    if (managedDirty() || managedBusy()) { event.preventDefault(); event.returnValue = ""; }
+  });
 
   // ---------- generic CRUD tab helper (used by DNS + WG) ----------
   function crudForm({ titleText, fields, formState, busy, error, onSubmit }) {
     const card = el("section", { class: "card span-12", "aria-label": titleText }, [
       el("p", { class: "title", text: titleText }),
     ]);
-    const grid = el("div", { style: "display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 8px;" });
+    const grid = el("div", { class: "managed-fields", style: "margin-top: 8px;" });
     for (const f of fields) {
       const wrap = el("label", { style: "display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;" }, [
         document.createTextNode(f.label),
@@ -1697,7 +1971,7 @@
   }
 
   function crudTable({ titleText, rows, columns, onDelete, busy }) {
-    const card = el("section", { class: "card span-12", "aria-label": titleText }, [
+    const card = el("section", { class: "card span-12 managed-table", "aria-label": titleText }, [
       el("p", { class: "title", text: `[ ${titleText} (${rows.length}) ]` }),
     ]);
     const t = document.createElement("table");
@@ -2335,6 +2609,7 @@
     vpn:      { endpoint: ENDPOINTS.overview, render: renderVPN,      refresh: 30_000 },
     logs:     { endpoint: ENDPOINTS.logs + "?limit=200", render: renderLogs, refresh: 10_000 },
     nat:      { custom: true, refresh: 0 },
+    firewall: { custom: true, refresh: 0 },
     dns:      { custom: true, refresh: 0 },
     dhcp:     { custom: true, refresh: 0 },
     wg:       { custom: true, refresh: 0 },
@@ -2350,6 +2625,8 @@
     for (const t of $$(".tab")) {
       const sel = t.dataset.tab === name;
       t.setAttribute("aria-selected", sel ? "true" : "false");
+      t.tabIndex = sel ? 0 : -1;
+      if (sel) t.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     const main = $("#grid");
     main.setAttribute("aria-labelledby", `tab-${name}`);
@@ -2382,9 +2659,10 @@
   }
 
   async function loadCurrentTab() {
-    if (inFlight) return;
+    if (inFlight || managedBusy()) return;
     inFlight = true;
-    const cfg = TAB_CONFIG[currentTab];
+    const requestedTab = currentTab;
+    const cfg = TAB_CONFIG[requestedTab];
     const main = $("#grid");
     main.setAttribute("aria-busy", "true");
     const btn = $("#btn-refresh");
@@ -2392,30 +2670,41 @@
     btn.disabled = true;
     try {
       if (cfg.custom && currentTab === "nat") {
-        await Promise.all([natList(), oneToOneList()]);
+        await Promise.all([natList(), oneToOneList(), managedList("portForward")]);
+        if (currentTab !== requestedTab) return;
         renderNatTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
+      if (cfg.custom && currentTab === "firewall") {
+        await Promise.all([managedList("firewallRules"), managedList("firewallAliases")]);
+        if (currentTab !== requestedTab) return;
+        renderFirewallTab();
+        return;
+      }
       if (cfg.custom && currentTab === "dns") {
         await Promise.all([dnsList(), dnsDomList(), dnsDotList()]);
+        if (currentTab !== requestedTab) return;
         renderDnsTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
       if (cfg.custom && currentTab === "dhcp") {
         await dhcpList();
+        if (currentTab !== requestedTab) return;
         renderDhcpTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
       if (cfg.custom && currentTab === "wg") {
         await wgList();
+        if (currentTab !== requestedTab) return;
         renderWgTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
       const data = await fetchJson(cfg.endpoint);
+      if (currentTab !== requestedTab) return;
       // overview/network include system info we use for the conn header
       if (data.system) renderHeader(data.system);
       // Ingest iface counters for live rate/sparklines.
@@ -2426,11 +2715,12 @@
       }
       main.setAttribute("aria-busy", "false");
     } catch (e) {
-      renderError(e);
+      if (currentTab === requestedTab) renderError(e);
     } finally {
       inFlight = false;
       btn.setAttribute("aria-busy", "false");
       btn.disabled = false;
+      if (currentTab !== requestedTab) queueMicrotask(loadCurrentTab);
     }
   }
 
@@ -2441,6 +2731,7 @@
   }
 
   async function switchTab(name) {
+    if (managedBusy()) return;
     setActiveTab(name);
     await loadCurrentTab();
     schedulePolling();
@@ -2449,6 +2740,12 @@
   // wire tabs
   for (const t of $$(".tab")) {
     t.addEventListener("click", () => switchTab(t.dataset.tab));
+    t.addEventListener("keydown", event => {
+      const tabs = $$(".tab"), index = tabs.indexOf(t);
+      const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
+      if (next < 0 || managedBusy()) return;
+      event.preventDefault(); tabs[next].focus(); switchTab(tabs[next].dataset.tab);
+    });
   }
   window.addEventListener("hashchange", () => {
     const name = location.hash.replace("#", "") || "overview";
@@ -2644,6 +2941,7 @@
       btn.disabled = true;
       try {
         const data = await fetchJson(ENDPOINTS.cluster);
+        if (currentTab !== "overview") return;
         cluster.lastCluster = data;
         renderClusterBar({ ok: true, data });
         const nodes = renderClusterOverview({ data });
@@ -2651,11 +2949,12 @@
         applyStagger();
         main.setAttribute("aria-busy", "false");
       } catch (e) {
-        renderError(e);
+        if (currentTab === "overview") renderError(e);
       } finally {
         inFlight = false;
         btn.setAttribute("aria-busy", "false");
         btn.disabled = false;
+        if (currentTab !== "overview") queueMicrotask(loadCurrentTab);
       }
       return;
     }

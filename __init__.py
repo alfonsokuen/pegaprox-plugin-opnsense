@@ -30,6 +30,8 @@ PLUGIN_NAME = 'OPNsense Manager'
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(PLUGIN_DIR, 'state')
 CONFIG_PATH = os.path.join(PLUGIN_DIR, 'config.json')
+with open(os.path.join(PLUGIN_DIR, 'manifest.json'), encoding='utf-8') as _manifest_file:
+    PLUGIN_VERSION = json.load(_manifest_file)['version']
 
 # PegaProx imports plugin packages via importlib without adding their
 # directory to sys.path, so absolute `from src.X import Y` calls inside
@@ -66,13 +68,17 @@ _bg_stop = threading.Event()
 def _load_config():
     """Load plugin config from CONFIG_PATH (JSON). Returns dict with defaults."""
     if not os.path.exists(CONFIG_PATH):
-        return {'opnsense_hosts': [], 'poll_interval': 30, 'read_only': False}
+        return {'opnsense_hosts': [], 'poll_interval': 30, 'read_only': True}
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            raise ValueError('config.json must contain an object')
+        cfg['read_only'] = cfg.get('read_only') is not False
+        return cfg
     except Exception as e:
         log.error('Failed to load config: %s', e)
-        return {'opnsense_hosts': [], 'poll_interval': 30, 'read_only': False}
+        return {'opnsense_hosts': [], 'poll_interval': 30, 'read_only': True}
 
 
 def _host_from_dict(h: dict):
@@ -181,9 +187,9 @@ def _h_health():
     cfg = _load_config()
     return {
         'plugin': PLUGIN_ID,
-        'version': '1.14.0',
+        'version': PLUGIN_VERSION,
         'configured': bool(cfg.get('opnsense_hosts')),
-        'read_only': cfg.get('read_only', False),
+        'read_only': cfg.get('read_only') is not False,
         'cluster_mode': _is_cluster_mode(cfg),
         'hosts_configured': len(cfg.get('opnsense_hosts') or []),
     }
@@ -200,6 +206,141 @@ def _unconfigured_response():
     return jsonify({'ok': False, 'error': 'unconfigured',
                     'detail': 'No opnsense_hosts in config.json — '
                               'edit /opt/PegaProx/plugins/opnsense/config.json'}), 400
+
+
+def _firewall_can_write():
+    """Use the host's permission resolver, never a client-supplied identity."""
+    try:
+        from pegaprox.utils.auth import require_auth
+        return require_auth(perms=['plugins.manage'])(lambda: True)() is True
+    except ImportError:
+        return False
+    except Exception as exc:
+        # Permission implementations may abort instead of returning a response.
+        # A permission probe must fail closed without breaking read-only views.
+        log.warning('Plugin write permission check failed: %s', type(exc).__name__)
+        return False
+
+
+def _firewall_target(cfg, write=False):
+    """Resolve new management operations from one config snapshot.
+
+    Writes require a fresh, unambiguous master across all configured CARP VIPs.
+    Read-only snapshots retain the existing cached primary-VIP selection.
+    """
+    from src.client import OPNsenseClient
+    from src.collectors.carp import collect_carp_status
+
+    hosts = cfg.get('opnsense_hosts') or []
+    if not hosts:
+        return None, None
+    if not _is_cluster_mode(cfg):
+        return _host_from_dict(hosts[0]), None
+    if write and len(hosts) != 2:
+        raise ValueError('Las escrituras HA requieren exactamente dos nodos configurados.')
+    a, b = _host_from_dict(hosts[0]), _host_from_dict(hosts[1])
+    if not write:
+        side = _resolved_master_side(a, b, a.name, b.name)
+        return (a, b) if side == 'a' else (b, a)
+    left = collect_carp_status(OPNsenseClient(a))
+    right = collect_carp_status(OPNsenseClient(b))
+    def vip_states(status):
+        return {(v['vhid'], v.get('ipaddr', '')): v['status'] for v in status['vhids']}
+    la, rb = vip_states(left), vip_states(right)
+    if (not left['enabled'] or not right['enabled'] or not la or la.keys() != rb.keys()
+            or left['maintenance_mode'] or right['maintenance_mode']):
+        raise ValueError('No se puede confirmar un par HA disponible con los mismos VIPs.')
+    if set(la.values()) == {'MASTER'} and set(rb.values()) == {'BACKUP'}:
+        return a, b
+    if set(la.values()) == {'BACKUP'} and set(rb.values()) == {'MASTER'}:
+        return b, a
+    raise ValueError('Estado CARP ambiguo o mixto: no se realizará ninguna escritura.')
+
+
+def _management_context():
+    """One config snapshot and authorization gate for every mutation handler."""
+    from flask import jsonify, request
+    from src.client import OPNsenseError
+
+    cfg = _load_config()
+    read_only = cfg.get('read_only') is not False
+    if request.method not in ('GET', 'POST'):
+        return None, (jsonify({'ok': False, 'error': 'method_not_allowed'}), 405)
+    write = request.method == 'POST'
+    if write and read_only:
+        return None, (jsonify({'ok': False, 'error': 'read_only',
+                              'detail': 'El plugin está configurado en modo de solo lectura.'}), 403)
+    if write and not _firewall_can_write():
+        return None, (jsonify({'ok': False, 'error': 'forbidden',
+                              'detail': 'Se requiere el permiso plugins.manage.'}), 403)
+    body = request.get_json(silent=True) if write else None
+    if write and not isinstance(body, dict):
+        return None, (jsonify({'ok': False, 'error': 'bad_request',
+                              'detail': 'Se requiere un objeto JSON.'}), 400)
+    try:
+        host, peer = _firewall_target(cfg, write=write)
+    except (ValueError, KeyError, TypeError) as exc:
+        return None, (jsonify({'ok': False, 'error': 'ha_unsafe', 'detail': str(exc)}), 409)
+    except OPNsenseError as exc:
+        return None, (jsonify({'ok': False, 'error': 'ha_unavailable', 'detail': str(exc)}), 502)
+    if host is None:
+        return None, _unconfigured_response()
+    return {
+        'cfg': cfg, 'read_only': read_only, 'write': write, 'body': body,
+        'host': host, 'peer': peer,
+        'actor': str(getattr(request, 'session', {}).get('user', 'plugin')),
+    }, None
+
+
+def _h_firewall_management(resource):
+    from flask import jsonify
+    from src.routes.firewall import build_firewall_action_payload, build_firewall_list_payload
+
+    context, denied = _management_context()
+    if denied is not None:
+        return denied
+    if not context['write']:
+        status, payload = build_firewall_list_payload(context['host'], resource)
+        if payload.get('ok'):
+            payload['data']['read_only'] = context['read_only'] or not _firewall_can_write()
+        return jsonify(payload), status
+    cfg = context['cfg']
+    status, payload = build_firewall_action_payload(
+        context['host'], PLUGIN_DIR, context['body'], resource=resource, actor=context['actor'],
+        read_only=context['read_only'], peer_host=context['peer'],
+        ha_verify_attempts=cfg.get('ha_verify_attempts', 6),
+        ha_verify_backoff=cfg.get('ha_verify_backoff', 0.5),
+    )
+    return jsonify(payload), status
+
+
+def _h_legacy_management(list_builder, action_builder):
+    """Keep legacy writer behavior behind the same permission and HA gate."""
+    from flask import jsonify
+
+    context, denied = _management_context()
+    if denied is not None:
+        return denied
+    if not context['write']:
+        status, payload = list_builder(context['host'])
+    else:
+        status, payload = action_builder(
+            context['host'], PLUGIN_DIR, context['body'],
+            actor=context['actor'], read_only=context['read_only'],
+        )
+    return jsonify(payload), status
+
+
+def _h_port_forward():
+    return _h_firewall_management('port_forward')
+
+
+def _h_rules():
+    return _h_firewall_management('rules')
+
+
+def _h_aliases():
+    return _h_firewall_management('aliases')
 
 
 def _h_overview():
@@ -257,156 +398,43 @@ def _h_logs():
 
 
 def _h_nat():
-    from flask import jsonify, request
     from src.routes import build_nat_action_payload, build_nat_list_payload
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_nat_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_nat_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    return _h_legacy_management(build_nat_list_payload, build_nat_action_payload)
 
 
 def _h_unbound():
-    from flask import jsonify, request
     from src.routes import build_unbound_action_payload, build_unbound_list_payload
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_unbound_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_unbound_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    return _h_legacy_management(build_unbound_list_payload, build_unbound_action_payload)
 
 
 def _h_dhcp_subnet():
-    from flask import jsonify, request
     from src.routes import build_dhcp_subnet_action_payload, build_dhcp_subnet_list_payload
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_dhcp_subnet_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_dhcp_subnet_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    return _h_legacy_management(build_dhcp_subnet_list_payload, build_dhcp_subnet_action_payload)
 
 
 def _h_dhcp():
-    from flask import jsonify, request
     from src.routes import build_dhcp_action_payload, build_dhcp_list_payload
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_dhcp_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_dhcp_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    return _h_legacy_management(build_dhcp_list_payload, build_dhcp_action_payload)
 
 
 def _h_one_to_one():
-    from flask import jsonify, request
-    from src.routes import (
-        build_one_to_one_action_payload,
-        build_one_to_one_list_payload,
-    )
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_one_to_one_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_one_to_one_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    from src.routes import build_one_to_one_action_payload, build_one_to_one_list_payload
+    return _h_legacy_management(build_one_to_one_list_payload, build_one_to_one_action_payload)
 
 
 def _h_unbound_domains():
-    from flask import jsonify, request
-    from src.routes import (
-        build_unbound_domain_action_payload,
-        build_unbound_domain_list_payload,
-    )
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_unbound_domain_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_unbound_domain_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    from src.routes import build_unbound_domain_action_payload, build_unbound_domain_list_payload
+    return _h_legacy_management(build_unbound_domain_list_payload, build_unbound_domain_action_payload)
 
 
 def _h_unbound_dots():
-    from flask import jsonify, request
-    from src.routes import (
-        build_unbound_dot_action_payload,
-        build_unbound_dot_list_payload,
-    )
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_unbound_dot_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_unbound_dot_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    from src.routes import build_unbound_dot_action_payload, build_unbound_dot_list_payload
+    return _h_legacy_management(build_unbound_dot_list_payload, build_unbound_dot_action_payload)
 
 
 def _h_wg():
-    from flask import jsonify, request
     from src.routes import build_wg_action_payload, build_wg_list_payload
-    host = _first_host_from_config()
-    if host is None:
-        return _unconfigured_response()
-    if request.method == 'GET':
-        status, payload = build_wg_list_payload(host)
-        return jsonify(payload), status
-    body = request.get_json(silent=True) or {}
-    cfg = _load_config()
-    status, payload = build_wg_action_payload(
-        host, PLUGIN_DIR, body,
-        actor='plugin', read_only=bool(cfg.get('read_only', False)),
-    )
-    return jsonify(payload), status
+    return _h_legacy_management(build_wg_list_payload, build_wg_action_payload)
 
 
 def _h_metrics():
@@ -438,7 +466,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         raise RuntimeError(
             'PegaProx framework not available — register() must run inside a PegaProx host'
         )
-    log.info('%s v1.12.0 loading', PLUGIN_NAME)
+    log.info('%s v%s loading', PLUGIN_NAME, PLUGIN_VERSION)
     os.makedirs(STATE_DIR, exist_ok=True)
 
     routes = {
@@ -453,6 +481,9 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         'dhcp': _h_dhcp,
         'dhcp_subnet': _h_dhcp_subnet,
         'nat': _h_nat,
+        'port_forward': _h_port_forward,
+        'rules': _h_rules,
+        'aliases': _h_aliases,
         'one_to_one': _h_one_to_one,
         'unbound': _h_unbound,
         'unbound_domains': _h_unbound_domains,

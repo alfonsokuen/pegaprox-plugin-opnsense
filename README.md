@@ -2,17 +2,17 @@
 
 Monitor and configure OPNsense firewalls (HA-aware) from the PegaProx dashboard.
 
-[![version](https://img.shields.io/badge/version-1.14.2-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.15.0-blue)](CHANGELOG.md)
 [![pegaprox](https://img.shields.io/badge/pegaprox-0.9.9.3+-orange)](https://github.com/PegaProx/project-pegaprox)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11+-yellow)](#development)
-[![tests](https://img.shields.io/badge/unit_tests-149_passed-success)](#qa)
+[![tests](https://img.shields.io/badge/tests-pytest-success)](#qa)
 [![a11y](https://img.shields.io/badge/axe--core-0_violations-success)](#qa)
 [![audit](https://img.shields.io/badge/audit_log-sha256-success)](#audit-log)
 
 ## What it does
 
-Wires an OPNsense firewall into the PegaProx admin panel. Read-only monitoring out of the box, write operations behind a tamper-evident audit log with automatic rollback, and a Prometheus `/metrics` endpoint for your existing monitoring stack.
+Wires an OPNsense firewall into the PegaProx admin panel. Read-only monitoring out of the box, write operations with audit evidence and explicit application/rollback outcomes, and a Prometheus `/metrics` endpoint for your existing monitoring stack.
 
 ### Monitoring (read-only)
 
@@ -41,7 +41,7 @@ Wires an OPNsense firewall into the PegaProx admin panel. Read-only monitoring o
 | `WireguardPeerWriter` | `/api/wireguard/client/*` | WireGuard peers (clients) |
 | `DhcpReservationWriter` | `/api/kea/dhcpv4/{add,del,search}Reservation` | Kea DHCPv4 static mappings |
 
-Every write follows the same lifecycle:
+Legacy writers use the lifecycle below. The new DNAT/rules/aliases routes additionally verify JSON acknowledgement, readback, revision conflicts and peer convergence; see [management API](docs/FIREWALL_MANAGEMENT.md).
 
 ```
 validate → POST → apply/reconfigure → (optional) HA syncTo → audit
@@ -49,7 +49,7 @@ validate → POST → apply/reconfigure → (optional) HA syncTo → audit
                        └─ on fail: rollback the orphan + record error
 ```
 
-**Audit log** (`state/audit.jsonl`) — append-only JSONL with `payload_sha256` per row: SHA-256 of the canonical-JSON sent to OPNsense. Tamper-evident without leaking secrets. An auditor replaying a known input can verify the historical write referenced that exact payload.
+**Audit log** (`state/audit.jsonl`) — append-only JSONL with `payload_sha256` per row: SHA-256 of the canonical-JSON sent to OPNsense. Correlates a known payload with the recorded operation without storing that payload; this is not a cryptographically authenticated log chain. An auditor replaying a known input can verify the historical write referenced that exact payload.
 
 **Out-of-scope on OPNsense 26.x**: port-forward (rdr) — `/api/firewall/{forward,portfwd,nat}/*` returns 404; rdr lives in GUI/XML-config only until upstream ships an API.
 
@@ -63,7 +63,7 @@ validate → POST → apply/reconfigure → (optional) HA syncTo → audit
 
 ### Dashboard UI — 8 tabs
 
-Hash-routed (`#overview`, `#network`, `#vpn`, `#logs`, `#nat`, `#dns`, `#dhcp`, `#wg`), ARIA tablist wrapped in `<nav aria-label>`, zero front-end dependencies:
+Hash-routed (`#overview`, `#network`, `#vpn`, `#logs`, `#nat`, `#firewall`, `#dns`, `#dhcp`, `#wg`), ARIA tablist wrapped in `<nav aria-label>`, zero front-end dependencies:
 
 | Tab | Content |
 |---|---|
@@ -71,7 +71,8 @@ Hash-routed (`#overview`, `#network`, `#vpn`, `#logs`, `#nat`, `#dns`, `#dhcp`, 
 | **Network** | live traffic chart (stacked area, top-4 by throughput), interfaces with **per-iface SVG sparklines** + live RX/TX rates, gateways, routing table, ARP, NDP. Rates computed client-side from successive byte counters; 60-sample window. **Per-iface drilldown** modal (`<dialog>`) with RX/TX chart + neighbors + lazy-loaded firewall events filtered by iface. |
 | **VPN** | full WireGuard / IPsec / OpenVPN tables (peer, pubkey/CN, endpoint, RX/TX, latest handshake) |
 | **Logs** | firewall log tail with live filter (search src/dst/iface/rule + action chip pass/block/rdr/nat). Auto-poll 10 s |
-| **NAT** | outbound NAT rules + **1:1 BINAT** sub-section. Form + table per sub-section with per-row delete |
+| **NAT** | Destination NAT create/edit/delete, plus existing outbound NAT and 1:1 BINAT |
+| **Firewall** | Filter rules and aliases create/edit/delete; explicit read-only state |
 | **DNS** | three sub-sections — host overrides + domain overrides + **DoT entries** |
 | **DHCP** | Kea DHCPv4 reservations (subnet UUID + IP + MAC + hostname) |
 | **WG peers** | WireGuard peer CRUD (name, pubkey, tunnel address, keepalive, optional PSK) |
@@ -116,7 +117,7 @@ Edit `/opt/PegaProx/plugins/opnsense/config.json`:
 }
 ```
 
-For HA pairs list both peers; the plugin will use the first by default and the second as the sync verification peer.
+For HA pairs configure `cluster_mode: "auto"`. Reads use the primary CARP VIP selection. New management writes require both peers reachable with complementary roles on every VIP, then verify the changed object on the peer. Mixed or unknown ownership blocks writes.
 
 **`read_only: true`** disables every write endpoint (HTTP 403 from the route layer before the writer even runs). Useful as a guard rail in shared production environments.
 
@@ -154,7 +155,7 @@ The uninstaller backs up the plugin directory to `/tmp/pegaprox-opnsense-backup-
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                                   # 149 unit tests, ~0.5s
+pytest                                   # default unit/regression suite
 ruff check src tests                     # lint
 ```
 
@@ -196,7 +197,7 @@ Adds a write-path round-trip (creates + deletes a host override) when `RUN_E2E_W
 .
 ├── manifest.json                 # PegaProx plugin manifest (version, has_frontend, frontend_route)
 ├── __init__.py                   # entry point: register() / unregister(), 12 routes
-├── opnsense.html                 # plugin UI: 8 tabs, sparklines + live chart, theme-aware
+├── opnsense.html                 # plugin UI: 9 tabs, verified management, theme-aware
 ├── install.sh / uninstall.sh
 ├── config.example.json
 ├── src/
@@ -206,7 +207,7 @@ Adds a write-path round-trip (creates + deletes a host override) when `RUN_E2E_W
 │   ├── routes/                   # build_*_payload functions per endpoint
 │   └── metrics/                  # Prometheus text-format exporter
 ├── tests/
-│   ├── test_*_unit.py            # 149 unit tests
+│   ├── test_*_unit.py            # unit/regression tests
 │   └── test_e2e_smoke.py         # Playwright browser e2e (opt-in)
 ├── fixtures/live/                # captured OPNsense API responses (sanitized)
 └── docs/                         # INSTALL / API / TROUBLESHOOTING
@@ -214,7 +215,7 @@ Adds a write-path round-trip (creates + deletes a host override) when `RUN_E2E_W
 
 ## QA
 
-- **149 unit tests** passing in <0.5 s, **19 e2e tests** gated by `RUN_E2E=1`
+- Unit/regression tests run by default; live tests remain opt-in. `RUN_LOCAL_E2E=1` enables browser ? Flask ? HTTPS simulator tests.
 - `ruff check` — clean
 - **axe-core: 0 violations** across WCAG 2.0 A + AA on every tab (Overview / Network / VPN / Logs / NAT / DNS / DHCP / WG peers), live-verified at `pegasus.idkmanager.com`
 - **Live round-trips verified** against OPNsense 26.1.2 lab: aliases, rules, source NAT, 1:1 NAT, Unbound host + domain + DoT, Kea reservation, WireGuard peer. Each round-trip records the SHA-256 in the JSONL.
@@ -224,7 +225,7 @@ Adds a write-path round-trip (creates + deletes a host override) when `RUN_E2E_W
 
 - **Unbound endpoint rename**: 26.x collapsed `addDomainOverride` into `addForward` with a `type` discriminator (`forward` | `dot`). The plugin uses the new endpoint and filters list results by `type`.
 - **`type=dot` coercion bug** (upstream): 26.1.2 silently stores DoT entries with `type=forward`. Plugin code is correct; the DoT filter will start surfacing rows automatically when upstream fixes it. Tracked in CHANGELOG.
-- **Kea subnet management** is out-of-scope (list-only via `searchSubnet`). Add reservations against subnets created in the OPNsense GUI.
+- **Kea subnet management** is available through the DHCP tab; advanced DHCP options remain GUI-managed.
 - **`one_to_one` apply path** uses `/apply` not `/reconfigure` (different from `source_nat`).
 - **Bare-root domain `.`** is rejected by Unbound DoT validation; use a real FQDN.
 
