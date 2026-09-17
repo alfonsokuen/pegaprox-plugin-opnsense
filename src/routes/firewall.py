@@ -164,7 +164,8 @@ def build_firewall_list_payload(host, resource="port_forward") -> tuple[int, dic
 def build_firewall_action_payload(host, plugin_dir, body, actor="plugin", read_only=False,
                                   peer_host=None, resource="port_forward",
                                   ha_verify_attempts=DEFAULT_HA_VERIFY_ATTEMPTS,
-                                  ha_verify_backoff=DEFAULT_HA_VERIFY_BACKOFF) -> tuple[int, dict[str, Any]]:
+                                  ha_verify_backoff=DEFAULT_HA_VERIFY_BACKOFF,
+                                  ha_sync_mode="automatic") -> tuple[int, dict[str, Any]]:
     if read_only:
         return 403, {"ok": False, "error": "read_only", "detail": "Plugin is read-only"}
     try:
@@ -179,9 +180,10 @@ def build_firewall_action_payload(host, plugin_dir, body, actor="plugin", read_o
         audit = AuditLog(os.path.join(plugin_dir, "state", "audit.jsonl"))
         writer = VerifiedFirewallWriter(OPNsenseClient(host), audit, resource, actor,
             peer=OPNsenseClient(peer_host) if peer_host else None,
-            ha_verify_attempts=ha_verify_attempts, ha_verify_backoff=ha_verify_backoff)
+            ha_verify_attempts=ha_verify_attempts, ha_verify_backoff=ha_verify_backoff,
+            ha_sync_mode=ha_sync_mode)
         result = writer.execute(action, payload, uuid, revision)
-        status = 200 if result["ok"] else {"validation": 422, "auth": 401, "timeout": 504, "ha_unverified": 409, "conflict": 409}.get(result.get("error"), 502)
+        status = 200 if result["ok"] else {"validation": 422, "auth": 401, "timeout": 504, "ha_unverified": 409, "ha_unsafe": 409, "conflict": 409}.get(result.get("error"), 502)
         envelope = {"ok": result["ok"], "data": result}
         if not result["ok"]:
             envelope.update(error=result.get("error", "upstream"), detail=result["detail"])

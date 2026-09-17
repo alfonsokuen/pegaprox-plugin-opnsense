@@ -310,6 +310,7 @@ def _h_firewall_management(resource):
         read_only=context['read_only'], peer_host=context['peer'],
         ha_verify_attempts=cfg.get('ha_verify_attempts', 6),
         ha_verify_backoff=cfg.get('ha_verify_backoff', 0.5),
+        ha_sync_mode=cfg.get('ha_sync_mode', 'automatic'),
     )
     return jsonify(payload), status
 

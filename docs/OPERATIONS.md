@@ -14,4 +14,4 @@ git ls-remote origin refs/heads/main
 
 Before changing plugin configuration, back up the current file privately and verify the intended API access using read-only requests. Keep credentials out of logs and this repository; the encrypted vault is authoritative. Confirm that each credential is actually registered on its node: replicated users may share an API key, and a historical node-specific key may no longer exist.
 
-Preserve read-only production mode until an isolated lab has qualified writes, packet delivery, filter association, cleanup and HA propagation. The v1.15.0 release validates configuration round-trips using a simulator and performs live production reads only.
+Preserve read-only production mode until the actual pair is qualified for writes. Version 1.15.1 adds real isolated-lab qualification of CRUD, packet delivery, manual filter association, cleanup and HA, including an established TCP connection through failover. See [lab results and limits](QA_LAB_20260917.md); the new Fable review remains pending because its account returned HTTP 429. The release does not automatically enable production writes.

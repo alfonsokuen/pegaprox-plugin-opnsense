@@ -1,4 +1,4 @@
-# Firewall management, v1.15.0
+# Firewall management, v1.15.1
 
 Native Python implementation using the official OPNsense API. AdmixCentral informed the feature comparison; this plugin does not embed it or require its PHP stack.
 
@@ -36,14 +36,31 @@ DNAT association is explicit: empty leaves filtering to separately managed rules
 
 ## Outcome guarantees and limits
 
-- Update/delete compare the original revision against a fresh read under a local process lock. Locks are per resolved host and resource within one process; they do not serialize across failover or multiple processes. External OPNsense actors can still race the subsequent write because the server API has no conditional-write/CAS primitive.
+- Update/delete compare the original revision against a fresh read under a local process lock shared by the three resources for the configured pair. Locks do not serialize multiple processes. External OPNsense actors can still race the subsequent write because the server API has no conditional-write/CAS primitive.
 - HA readback defaults to six attempts with 0.5-second increasing backoff (7.5 seconds total waiting, plus request time). Configure `ha_verify_attempts` (1-10) and `ha_verify_backoff` (0-2 seconds). Enable the relevant XMLRPC synchronization sections in OPNsense.
 - Audit intent is persisted before mutation. Mutating POSTs are never automatically retried.
 - A successful HTTP status is insufficient: JSON acknowledgement and validation errors are checked, apply/reconfigure is checked, then stored fields are read back.
 - A failed create can be compensated only when the outcome is definite and the created UUID is known. The response reports whether rollback was attempted and verified. Updates/deletes and ambiguous timeouts require reconciliation; there is no blanket rollback guarantee.
 - `data.verified` concerns stored configuration, not packet delivery. `data.applied` reports successful apply acknowledgement. If peer verification fails, the request reports partial local success as an error with sync details, not a green success.
+- Readback does not prove durable storage across immediate power loss. OPNsense 26.1.2 saves with `fflush`, not `fsync`; the lab's ZFS transaction interval was 90 seconds. An immediate hard stop lost recent local changes while the peer retained them. Power-loss qualification must distinguish this upstream storage behavior from CARP failover after a storage barrier.
 - HA writes require a fresh unambiguous master/backup pair with identical VIP sets. Mixed ownership, maintenance mode, missing peers or more than two nodes are blocked.
-- The new routes observe OPNsense's configured automatic HA propagation by reading the actual peer. They do not restart unrelated services or call `core/hasync/syncTo`, which is absent from the official 26.1.2 core controller. Legacy routes share the permission, read-only and fresh CARP gates, but their apply/sync/readback behavior has not been migrated to the new verified writer.
+- Default `ha_sync_mode: "automatic"` only observes independently configured synchronization. OPNsense 26.1.2 apply/reconfigure does **not** itself trigger XMLRPC; selecting synchronization sections alone is insufficient. Use the explicit mode below when its constraints match the pair. Legacy routes share the permission, read-only and fresh CARP gates, but their apply/sync/readback behavior has not been migrated to the new verified writer.
+
+## Explicit XMLRPC synchronization
+
+Set `ha_sync_mode: "xmlrpc_pf"` only for a qualified pair. The plugin invokes the native `core/hasync_status/restart/pf` action once after local apply and readback, then verifies the object on the actual peer. That action copies **all selected XMLRPC sections**, regenerates peer templates and reloads PF. Native XMLRPC also reconfigures routing and resolver settings; this is not a PF-only side effect. It does not invoke the restart-all-services action.
+
+Requirements checked before mutation and again before the trigger:
+
+- The selected master has a literal peer IP (or HTTPS URL with a literal IP) as its XMLRPC target. It must belong exclusively to the peer's interface addresses, excluding CARP VIPs. DNS names and credential-bearing URLs are rejected.
+- The peer has no reverse XMLRPC target. The required section is selected (`aliases`, `rules`, or `nat`), and the selection contains only those three firewall sections. Broader selections are rejected rather than changed by the plugin.
+- All CARP VIPs match and remain MASTER locally/BACKUP remotely. A failover does not reverse XMLRPC automatically. Management writes remain blocked until the configured primary is safely restored.
+
+A changed direction/scope or failed/uncertain trigger returns a partial result; it does not remove an already applied create. The OPNsense trigger acknowledgement cannot prove synchronization by itself, so peer readback remains mandatory. The checks cannot eliminate a race with external administrators between API requests.
+
+OPNsense 26.1.2 XMLRPC preserves the final peer DNAT when the primary's `nat/rule` branch disappears. For this case only, the plugin can delete that exact UUID directly on the peer after normal synchronization and polling. Before local deletion both nodes must contain exactly that one real DNAT with identical canonical revisions. Before peer cleanup the primary must be empty and the peer must still contain only that unchanged UUID, with HA checks still valid. The response and audit report `sync.peer_cleanup`; one peer delete and one acknowledged apply are followed by absence verification on both nodes. Ambiguous failures are not retried. Unknown grid rows, divergence or concurrent edits block cleanup.
+
+Native contracts: [HA action controller](https://github.com/opnsense/core/blob/26.1.2/src/opnsense/mvc/app/controllers/OPNsense/Core/Api/HasyncStatusController.php), [XMLRPC section synchronization](https://github.com/opnsense/core/blob/26.1.2/src/etc/rc.filter_synchronize).
 
 Missing or invalid `read_only` values fail closed; enabling writes requires JSON boolean `false`. A create with uncertain acceptance blocks another create until explicit reconciliation in the UI.
 

@@ -20,5 +20,6 @@
     "ha_active_url": "https://10.0.0.10",
     "poll_interval": 30,
     "read_only": false,
+    "ha_sync_mode": "automatic",
     "monitor_both_nodes": true
 }

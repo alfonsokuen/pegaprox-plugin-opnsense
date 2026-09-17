@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.15.1] - 2026-09-17
+
+### Fixed
+- Real OPNsense 26.1.2 lab testing showed that firewall apply/reconfigure reloads locally without triggering XMLRPC. Added explicit `ha_sync_mode: "xmlrpc_pf"` for aliases, filter rules and DNAT; default `automatic` retains observation-only behavior.
+- Explicit synchronization validates one-way XMLRPC, a literal non-CARP peer address, firewall-only sections and complementary CARP ownership before writing and again before synchronizing. It copies the selected firewall sections and reloads peer PF; it never invokes `restartAll` or changes HA settings.
+- Serialize the three management resources under one host lock. Failed or uncertain synchronization preserves the applied local change, returns `ha_unverified`, and never retries or rolls back an applied create.
+- Handle the upstream last-DNAT XMLRPC merge omission with an exact-UUID peer cleanup guarded by matching revisions, single-rule inventories and unchanged HA state; report the cleanup separately and verify absence on both nodes.
+
 ## [1.15.0] - 2026-09-17
 
 ### Added
