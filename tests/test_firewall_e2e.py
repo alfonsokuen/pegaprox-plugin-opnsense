@@ -476,6 +476,7 @@ def test_vpn_tab_uses_dedicated_data_in_cluster_mode(page, stack, native):
         expect(page.locator('[aria-label="Peers WireGuard"]')).to_contain_text('2.00 KB')
         page.set_viewport_size({'width': 390, 'height': 844})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert page.locator('[aria-label="VPN"]').bounding_box()['width'] >= 320
 
 
 @pytest.mark.parametrize("theme,css", [("corp-dark", None), ("corp-light", "theme-light"), ("cloud", "theme-cloud")])
