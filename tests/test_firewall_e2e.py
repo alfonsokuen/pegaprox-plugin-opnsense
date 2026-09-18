@@ -498,3 +498,18 @@ def test_mobile_themes_keyboard_and_no_viewport_overflow(page, stack, theme, css
     if directory:
         Path(directory).mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(Path(directory) / f"dnat-mobile-{theme}.png"), full_page=True, animations="disabled")
+
+
+def test_mobile_network_long_addresses_scroll_inside_readable_cards(page, stack):
+    from playwright.sync_api import expect
+    page.set_viewport_size({'width': 390, 'height': 844})
+    snapshot = {'interfaces': [], 'gateways': [], 'arp': [], 'ndp': [], 'routes': [
+        {'destination': '2001:db8:abcd:1234:5678:9abc:def0:1234/128',
+         'gateway': '2001:db8:abcd:1234:5678:9abc:def0:5678', 'interface': 'vtnet0', 'flags': 'UGS', 'mtu': 1500}]}
+    page.route('**/api/network', lambda route: route.fulfill(json={'ok': True, 'data': snapshot}))
+    page.goto(stack.url + '/ui#network')
+    expect(page.locator('#grid')).to_have_attribute('aria-busy', 'false')
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    card = page.locator('[aria-label="Tabla de rutas"]')
+    assert card.bounding_box()['width'] >= 320
+    assert card.evaluate('(e)=>e.scrollWidth > e.clientWidth')

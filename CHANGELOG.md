@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.16.3] - 2026-09-18
+
+- Keep wide tables and long IPv6 addresses inside their cards on mobile across all dashboard tabs. All nine tabs were checked against production data at 390 px before rollout using the candidate style.
+
 ## [1.16.2] - 2026-09-18
 
 - Full-width cards span the actual responsive grid, avoiding implicit columns and squeezed summary cards on mobile. Visual inspection caught this after the no-overflow check; the browser regression now asserts readable card width as well.
