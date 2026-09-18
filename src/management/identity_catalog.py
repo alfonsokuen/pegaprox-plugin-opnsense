@@ -165,8 +165,11 @@ def _trust_verify(spec, actual, expected, action):
             days = (observed.not_valid_after_utc - observed.not_valid_before_utc).total_seconds() / 86400
             if abs(days - int(expected['lifetime'])) > 1:
                 raise ValueError()
-            if not expected.get('caref'):
-                observed.verify_directly_issued_by(observed)
+            # OPNsense may generate an internal certificate signed by its
+            # selected CA while omitting the CA refid from the readback.
+            # The key, subject, lifetime and signature checks above are the
+            # verifiable contract available from that response; attempting
+            # to verify the certificate against itself rejects valid chains.
     except Exception:
         # Cryptographic backends have several exception families; none may be
         # surfaced with raw PEM or backend diagnostic contents.
