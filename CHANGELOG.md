@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.18.0] - 2026-09-18
+
+- Added the AdmixCentral native OPNsense management workspace: catalog-driven resources, guarded CRUD with revisions, fixed device operations, identity/PKI/CRL adapters, encrypted local backups, and responsive workspace UI.
+- Added live-lab CRUD and stale-revision coverage for network, VPN, shaping, IDS, captive portal, DNS, syslog and identity resources. Production remains read-only by default.
+- Documented the verified coverage and remaining platform-specific gaps in `docs/ADMIX_PARITY_MATRIX.md` and `docs/PARITY_STATUS_20260918.md`.
+
 ## [1.17.0] - 2026-09-18
 
 ### Improved

@@ -748,6 +748,7 @@
       <span id="conn-version">Conectando…</span>
     </div>
     <span class="access-mode" id="access-mode" role="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span id="access-mode-text">Comprobando acceso</span></span>
+    <a class="btn" id="btn-workspace" href="./workspace" style="text-decoration:none">Administrar</a>
     <button class="btn" type="button" id="btn-refresh" aria-label="Refrescar vista">
       <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/></svg>
       <span>Actualizar</span>
@@ -805,6 +806,7 @@
 </dialog>
 
 <script type="module">
+  document.getElementById("btn-workspace").href = "./workspace?theme=" + encodeURIComponent(new URLSearchParams(location.search).get("theme") || "corp-dark");
   // Theme awareness — PegaProx passes ?theme=corp-light|corp-dark|... when
   // it embeds the plugin in its iframe. Treat anything containing "light"
   // as light mode, default to dark.

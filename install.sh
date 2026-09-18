@@ -112,6 +112,11 @@ fi
 chown -R pegaprox:pegaprox "$PLUGIN_DIR" 2>/dev/null || chown -R "$(stat -c %U "$PEGAPROX_DIR")" "$PLUGIN_DIR"
 chmod 600 "$PLUGIN_DIR/config.json"
 
+if [ -f "$PLUGIN_DIR/requirements.txt" ] && [ -x "$PEGAPROX_DIR/venv/bin/python" ]; then
+    echo -e "  Installing plugin runtime dependencies"
+    "$PEGAPROX_DIR/venv/bin/python" -m pip install --disable-pip-version-check --no-input -q -r "$PLUGIN_DIR/requirements.txt"
+fi
+
 echo ""
 echo -e "${BLUE}[3/4] Enabling plugin in PegaProx...${NC}"
 

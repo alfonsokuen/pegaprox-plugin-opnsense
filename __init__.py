@@ -205,6 +205,213 @@ def _h_ui():
                      mimetype='text/html')
 
 
+def _workspace_asset(filename, mimetype):
+    from flask import jsonify, request, send_file
+    if request.method != 'GET':
+        return jsonify({'ok': False, 'error': 'method_not_allowed'}), 405
+    response = send_file(os.path.join(PLUGIN_DIR, filename), mimetype=mimetype)
+    response.headers['Cache-Control'] = 'private, no-cache'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+def _h_workspace():
+    return _workspace_asset('workspace.html', 'text/html')
+
+
+def _h_workspace_js():
+    return _workspace_asset('workspace.js', 'application/javascript')
+
+
+def _h_workspace_css():
+    return _workspace_asset('workspace.css', 'text/css')
+
+
+def _management_resources():
+    from src.management.catalog import RESOURCES
+    from src.management.identity_catalog import IDENTITY_RESOURCES
+    from src.management.crl import CRL_RESOURCE
+    return {**RESOURCES, **IDENTITY_RESOURCES, 'trust_crl': CRL_RESOURCE}
+
+
+def _h_catalog():
+    from flask import jsonify, request
+    from src.management.operations import OPERATIONS
+    if request.method != 'GET':
+        return jsonify({'ok': False, 'error': 'method_not_allowed'}), 405
+    cfg = _load_config()
+    readonly = cfg.get('read_only') is not False or not _firewall_can_write()
+    public = []
+    for spec in _management_resources().values():
+        metadata = {key: spec[key] for key in ('id', 'label', 'group', 'fields', 'columns', 'singleton') if key in spec}
+        ha_blocked = _is_cluster_mode(cfg) and spec.get('ha_safe') is not True
+        metadata.update(read_only=readonly or ha_blocked,
+                        write_restriction='read_only' if readonly else 'ha_unqualified' if ha_blocked else None,
+                        operations=[action for action, key in (('create', 'add'), ('update', 'set'), ('delete', 'delete')) if spec.get(key)])
+        public.append(metadata)
+    operations = [{key: value for key, value in spec.items()
+                   if key in ('id', 'label', 'group', 'method', 'fields', 'confirm', 'description')}
+                  for spec in OPERATIONS.values()]
+    return jsonify({'ok': True, 'data': {'resources': public, 'operations': operations,
+                                       'backups': {'available': _firewall_can_write()}, 'read_only': readonly}})
+
+
+def _h_backups():
+    from flask import jsonify, request, Response
+    from src.management.backups import BackupStore
+    from src.management.engine import ManagementError
+    from src.writers.audit import AuditLog
+
+    if request.method not in ('GET', 'POST'):
+        return jsonify({'ok': False, 'error': 'method_not_allowed'}), 405
+    if not _firewall_can_write():
+        return jsonify({'ok': False, 'error': 'forbidden', 'detail': 'Se requiere el permiso plugins.manage.'}), 403
+    try:
+        store = BackupStore(os.path.join(STATE_DIR, 'backups'),
+                            AuditLog(os.path.join(STATE_DIR, 'audit.jsonl')),
+                            str(getattr(request, 'session', {}).get('user', 'plugin')))
+        if request.method == 'GET':
+            if request.args.get('download') == '1':
+                payload = store.read(request.args.get('id'))
+                response = Response(payload, mimetype='application/xml')
+                response.headers['Content-Disposition'] = 'attachment; filename="opnsense-backup.xml"'
+                response.headers['X-Content-Type-Options'] = 'nosniff'
+            else:
+                response = jsonify({'ok': True, 'data': {'items': store.list()}})
+        else:
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or body.get('action') not in ('create', 'delete'):
+                return jsonify({'ok': False, 'error': 'bad_request'}), 400
+            if body['action'] == 'create':
+                host, _ = _firewall_target(_load_config(), write=False)
+                if host is None:
+                    return _unconfigured_response()
+                data = store.create(host)
+            else:
+                data = store.delete(body.get('id'))
+            response = jsonify({'ok': True, 'data': data})
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
+    except ManagementError as exc:
+        return jsonify(exc.as_dict()), exc.status
+    except Exception:
+        log.exception('Backup operation failed')
+        return jsonify({'ok': False, 'error': 'internal', 'detail': 'No se pudo procesar el respaldo.'}), 500
+
+
+def _h_operate():
+    from flask import jsonify, request
+    from src.client import OPNsenseClient
+    from src.management.engine import ManagementError
+    from src.management.operations import OPERATIONS, execute_operation
+    from src.writers.audit import AuditLog
+
+    body = request.get_json(silent=True) if request.method == 'POST' else None
+    operation = body.get('operation') if isinstance(body, dict) else request.args.get('operation')
+    if not isinstance(operation, str) or operation not in OPERATIONS:
+        return jsonify({'ok': False, 'error': 'unknown_operation', 'detail': 'Selecciona una operación válida.'}), 404
+    if request.method != OPERATIONS[operation]['method']:
+        return jsonify({'ok': False, 'error': 'method_not_allowed'}), 405
+    context, denied = _management_context(mutation=OPERATIONS[operation].get('mutation', request.method == 'POST'))
+    if denied is not None:
+        return denied
+    values = body.get('values', {}) if isinstance(body, dict) else {key: value for key, value in request.args.items() if key != 'operation'}
+    client = OPNsenseClient(context['host'])
+    try:
+        data = execute_operation(client, AuditLog(os.path.join(STATE_DIR, 'audit.jsonl')),
+                                 context['actor'], operation, values)
+        data['target'] = context['host'].name
+        response = jsonify({'ok': True, 'data': data})
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
+    except ManagementError as exc:
+        return jsonify(exc.as_dict()), exc.status
+    except Exception:
+        log.exception('Device operation failed for %s', operation)
+        return jsonify({'ok': False, 'error': 'internal', 'detail': 'No se pudo completar la operación.'}), 500
+    finally:
+        client.close()
+
+
+def _h_manage():
+    from flask import jsonify, request
+    from src.client import OPNsenseClient
+    from src.management.engine import ManagementError, ManagementService
+    from src.writers.audit import AuditLog
+
+    body = request.get_json(silent=True) if request.method == 'POST' else None
+    resource = body.get('resource') if isinstance(body, dict) else request.args.get('resource')
+    resources = _management_resources()
+    if not isinstance(resource, str) or resource not in resources:
+        return jsonify({'ok': False, 'error': 'unknown_resource', 'detail': 'Selecciona un módulo válido.'}), 404
+    context, denied = _management_context()
+    if denied is not None:
+        return denied
+    spec = resources[resource]
+    client = OPNsenseClient(context['host'])
+    peer = OPNsenseClient(context['peer']) if context['peer'] else None
+    try:
+        if resource == 'trust_crl':
+            from src.management.crl import CrlService
+            crl = CrlService(client, AuditLog(os.path.join(STATE_DIR, 'audit.jsonl')),
+                             actor=context['actor'], peer=peer)
+            if context['write']:
+                data = crl.mutate(body)
+            elif request.args.get('defaults') == '1':
+                return jsonify({'ok': False, 'error': 'bad_request',
+                                'detail': 'CRL requiere la referencia de la CA.'}), 400
+            elif 'uuid' in request.args:
+                data = crl.detail(request.args['uuid'])
+            else:
+                try:
+                    page = int(request.args.get('page', '1'))
+                    row_count = int(request.args.get('row_count', '50'))
+                except ValueError:
+                    return jsonify({'ok': False, 'error': 'bad_request',
+                                    'detail': 'PÃ¡gina o tamaÃ±o de pÃ¡gina invÃ¡lido.'}), 400
+                data = crl.list(page=page, row_count=row_count, search=request.args.get('search', ''))
+            if not context['write']:
+                data.update(read_only=context['read_only'] or not _firewall_can_write(),
+                            write_restriction='read_only' if context['read_only'] else None)
+            response = jsonify({'ok': True, 'data': data})
+            response.headers['Cache-Control'] = 'no-store'
+            return response, 200
+        service = ManagementService(client, AuditLog(os.path.join(STATE_DIR, 'audit.jsonl')),
+                                    actor=context['actor'], peer=peer)
+        if context['write']:
+            data = service.mutate(spec, body)
+        elif request.args.get('defaults') == '1':
+            data = service.detail(spec)
+        elif 'uuid' in request.args:
+            data = service.detail(spec, request.args['uuid'])
+        else:
+            try:
+                page = int(request.args.get('page', '1'))
+                row_count = int(request.args.get('row_count', '50'))
+                if page < 1 or not 1 <= row_count <= 200:
+                    raise ValueError()
+            except ValueError:
+                return jsonify({'ok': False, 'error': 'bad_request', 'detail': 'Página o tamaño de página inválido.'}), 400
+            data = service.list(spec, page=page, row_count=row_count, search=request.args.get('search', ''))
+        if not context['write']:
+            ha_blocked = peer is not None and spec.get('ha_safe') is not True
+            readonly = context['read_only'] or not _firewall_can_write()
+            data.update(read_only=readonly or ha_blocked,
+                        write_restriction='read_only' if readonly else 'ha_unqualified' if ha_blocked else None)
+        response = jsonify({'ok': True, 'data': data})
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
+    except ManagementError as exc:
+        return jsonify(exc.as_dict()), exc.status
+    except Exception:
+        log.exception('Management operation failed for resource %s', resource)
+        return jsonify({'ok': False, 'error': 'internal', 'detail': 'No se pudo completar la operación.'}), 500
+    finally:
+        client.close()
+        if peer:
+            peer.close()
+
+
 def _unconfigured_response():
     from flask import jsonify
     return jsonify({'ok': False, 'error': 'unconfigured',
@@ -261,7 +468,7 @@ def _firewall_target(cfg, write=False):
     raise ValueError('Estado CARP ambiguo o mixto: no se realizará ninguna escritura.')
 
 
-def _management_context():
+def _management_context(*, mutation=None):
     """One config snapshot and authorization gate for every mutation handler."""
     from flask import jsonify, request
     from src.client import OPNsenseError
@@ -270,7 +477,7 @@ def _management_context():
     read_only = cfg.get('read_only') is not False
     if request.method not in ('GET', 'POST'):
         return None, (jsonify({'ok': False, 'error': 'method_not_allowed'}), 405)
-    write = request.method == 'POST'
+    write = request.method == 'POST' if mutation is None else bool(mutation)
     if write and read_only:
         return None, (jsonify({'ok': False, 'error': 'read_only',
                               'detail': 'El plugin está configurado en modo de solo lectura.'}), 403)
@@ -497,6 +704,13 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         # /api/plugins/opnsense/api/<path>
         'health': _h_health,
         'ui': _h_ui,
+        'workspace': _h_workspace,
+        'workspace_js': _h_workspace_js,
+        'workspace_css': _h_workspace_css,
+        'catalog': _h_catalog,
+        'manage': _h_manage,
+        'operate': _h_operate,
+        'backups': _h_backups,
         'overview': _h_overview,
         'cluster': _h_cluster,
         'network': _h_network,
