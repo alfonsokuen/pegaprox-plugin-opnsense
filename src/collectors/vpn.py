@@ -37,7 +37,9 @@ def _peer(kind: str, row: dict[str, Any], name_keys: tuple[str, ...], remote_key
         type=kind,
         name=name,
         enabled=_bool01(enabled_raw) or str(enabled_raw).lower() in ("true", "yes"),
-        connected=_bool01(row.get("connected", row.get("running", ""))),
+        connected=(str(row["peer-status"]).lower() == "online"
+                   if kind == "wireguard" and "peer-status" in row
+                   else _bool01(row.get("connected", row.get("running", "")))),
         remote_address=remote,
         raw=row,
     )
@@ -53,7 +55,7 @@ def collect_wireguard(client: OPNsenseClient) -> tuple[bool, list[VPNPeer]]:
     rows = show.get("rows", []) if isinstance(show, dict) else []
     peers = [
         _peer("wireguard", r, ("name", "instance"), ("endpoint", "endpoint_address"))
-        for r in rows
+        for r in rows if r.get("type") != "interface"
     ]
     return enabled, peers
 

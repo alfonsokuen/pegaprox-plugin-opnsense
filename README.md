@@ -2,7 +2,7 @@
 
 Monitor and configure OPNsense firewalls (HA-aware) from the PegaProx dashboard.
 
-[![version](https://img.shields.io/badge/version-1.16.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.16.1-blue)](CHANGELOG.md)
 [![pegaprox](https://img.shields.io/badge/pegaprox-0.9.9.3+-orange)](https://github.com/PegaProx/project-pegaprox)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11+-yellow)](#development)

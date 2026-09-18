@@ -665,6 +665,7 @@
   .managed-check input { width: 18px; min-height: 18px; accent-color: var(--accent); }
   .managed-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
   .managed-table { position: relative; overflow-x: auto; max-width: 100%; }
+  .vpn-table { min-width: 0; max-width: 100%; overflow-x: auto; }
   .managed-message { margin: 10px 0; overflow-wrap: anywhere; }
   .managed-error { color: #fca5a5; }
   .theme-light .managed-error { color: #b91c1c; }
@@ -1330,7 +1331,7 @@
 
   // ---------- vpn tab ----------
   function tableWG(rows) {
-    const cell = el("section", { class: "card span-12", "aria-label": "Peers WireGuard" }, [
+    const cell = el("section", { class: "card span-12 vpn-table", "aria-label": "Peers WireGuard", tabindex: "0" }, [
       el("p", { class: "title" }, "[ wireguard peers ]"),
     ]);
     const table = el("table", { class: "tt" });
@@ -1343,16 +1344,20 @@
     const tb = $("tbody", table);
     for (const p of rows) {
       const cls = p.connected ? "badge-green" : "badge-muted";
-      const stateText = p.connected ? "ONLINE" : "—";
+      const stateText = p.connected ? "ONLINE" : String(p.raw?.["peer-status"] || "offline").toUpperCase();
+      const rx = p.raw?.["transfer-rx"] ?? p.raw?.transfer_rx;
+      const tx = p.raw?.["transfer-tx"] ?? p.raw?.transfer_tx;
+      const handshake = p.raw?.["latest-handshake-age"] != null
+        ? `${p.raw["latest-handshake-age"]} s` : (p.raw?.latest_handshake || "—");
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><b>${escapeText(p.name || "—")}</b></td>
-        <td class="dim mono">${escapeText((p.raw?.pubkey || "").slice(0, 24))}…</td>
-        <td><span class="badge ${cls}">${stateText}</span></td>
+        <td class="dim mono">${escapeText((p.raw?.["public-key"] || p.raw?.pubkey || "").slice(0, 24))}…</td>
+        <td><span class="badge ${cls}">${escapeText(stateText)}</span></td>
         <td class="dim mono">${escapeText(p.remote_address || "—")}</td>
-        <td class="num">${p.raw?.transfer_rx == null ? "—" : fmtBytes(p.raw.transfer_rx)}</td>
-        <td class="num">${p.raw?.transfer_tx == null ? "—" : fmtBytes(p.raw.transfer_tx)}</td>
-        <td class="dim">${escapeText(p.raw?.latest_handshake || "—")}</td>`;
+        <td class="num">${rx == null ? "—" : fmtBytes(rx)}</td>
+        <td class="num">${tx == null ? "—" : fmtBytes(tx)}</td>
+        <td class="dim">${escapeText(handshake)}</td>`;
       tb.appendChild(tr);
     }
     if (!rows.length) tb.innerHTML = `<tr><td colspan="7" class="dim">Sin peers WireGuard.</td></tr>`;
@@ -1361,7 +1366,7 @@
   }
 
   function tableIPSec(rows) {
-    const cell = el("section", { class: "card span-6", "aria-label": "IPsec phase 1" }, [
+    const cell = el("section", { class: "card span-6 vpn-table", "aria-label": "IPsec phase 1", tabindex: "0" }, [
       el("p", { class: "title" }, "[ ipsec phase 1 ]"),
     ]);
     const table = el("table", { class: "tt" });
@@ -1385,7 +1390,7 @@
   }
 
   function tableOpenVPN(rows) {
-    const cell = el("section", { class: "card span-6", "aria-label": "OpenVPN sessions" }, [
+    const cell = el("section", { class: "card span-6 vpn-table", "aria-label": "OpenVPN sessions", tabindex: "0" }, [
       el("p", { class: "title" }, "[ openvpn sessions ]"),
     ]);
     const table = el("table", { class: "tt" });

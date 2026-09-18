@@ -11,6 +11,20 @@ from tests.test_firewall_management import Firewall, UUID, ALIAS
 pytest_plugins = ["tests.test_firewall_handlers"]
 
 
+def test_wireguard_native_rows_exclude_interfaces_and_use_peer_status():
+    from src.collectors.vpn import collect_wireguard
+    rows = [{"type": "interface", "status": "up", "name": "wg0"},
+            {"type": "peer", "name": "active", "peer-status": "online"},
+            {"type": "peer", "name": "old", "peer-status": "stale"},
+            {"type": "peer", "name": "off", "peer-status": "offline"},
+            {"name": "legacy", "connected": "1"}]
+    client = SimpleNamespace(get=lambda path: {"general": {"enabled": "1"}} if path.endswith("/get") else {"rows": rows})
+    enabled, peers = collect_wireguard(client)
+    assert enabled is True
+    assert [p["name"] for p in peers] == ["active", "old", "off", "legacy"]
+    assert [p["connected"] for p in peers] == [True, False, False, True]
+
+
 def test_network_collectors_run_concurrently_with_isolated_sessions(monkeypatch):
     barrier = Barrier(5)
     lock = Lock()

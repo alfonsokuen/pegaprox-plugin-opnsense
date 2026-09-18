@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.16.1] - 2026-09-18
+
+- Production smoke exposed native WireGuard hyphenated fields and interface rows mixed with peers. Use peer-status for connectivity, exclude interface rows from peer counts, and show native public key, traffic and handshake age while retaining earlier field compatibility.
+- Contain VPN tables within keyboard-scrollable cards on narrow screens. Regression coverage uses the observed native row shape and a 390 px viewport.
+
 ## [1.16.0] - 2026-09-18
 
 ### Improved

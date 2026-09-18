@@ -432,7 +432,8 @@ def test_cluster_health_enables_both_columns_and_partial_data_stays_visible(page
     assert page.console_errors == []
 
 
-def test_vpn_tab_uses_dedicated_data_in_cluster_mode(page, stack):
+@pytest.mark.parametrize("native", [False, True])
+def test_vpn_tab_uses_dedicated_data_in_cluster_mode(page, stack, native):
     """Mock only read payloads to exercise the real browser cluster/VPN routing."""
     from playwright.sync_api import expect
     requests = []
@@ -450,6 +451,12 @@ def test_vpn_tab_uses_dedicated_data_in_cluster_mode(page, stack):
         '/api/openvpn/service/searchSessions': {'rows': [{'description': 'openvpn-peer',
             'real_address': '192.0.2.11', 'transfer_rx': 2048, 'transfer_tx': 4096}]},
     }
+    if native:
+        payloads['/api/wireguard/service/show']['rows'] = [
+            {'type': 'interface', 'name': 'wg0', 'status': 'up'},
+            {'type': 'peer', 'name': 'vpn-cluster-peer', 'peer-status': 'online',
+             'endpoint': '192.0.2.8:51820', 'public-key': 'A' * 43 + '=',
+             'transfer-rx': 2048, 'transfer-tx': 4096, 'latest-handshake-age': 64}]
     snapshot = collect_vpn(types.SimpleNamespace(get=lambda path: payloads[path]))
     page.route("**/api/vpn", lambda route: route.fulfill(json={"ok": True, "data": {"vpn": snapshot}}))
     page.goto(stack.url + "/ui#vpn")
@@ -462,6 +469,13 @@ def test_vpn_tab_uses_dedicated_data_in_cluster_mode(page, stack):
     expect(page.locator('[aria-label="OpenVPN sessions"]')).to_contain_text('192.0.2.11')
     assert sum(url.endswith("/vpn") for url in requests) == 1
     assert not any(url.endswith("/overview") for url in requests)
+    if native:
+        expect(page.locator('[aria-label="Peers WireGuard"] tbody tr')).to_have_count(1)
+        expect(page.locator('[aria-label="Peers WireGuard"]')).to_contain_text('A' * 24)
+        expect(page.locator('[aria-label="Peers WireGuard"]')).to_contain_text('64 s')
+        expect(page.locator('[aria-label="Peers WireGuard"]')).to_contain_text('2.00 KB')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
 
 
 @pytest.mark.parametrize("theme,css", [("corp-dark", None), ("corp-light", "theme-light"), ("cloud", "theme-cloud")])
