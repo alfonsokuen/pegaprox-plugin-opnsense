@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.15.2] - 2026-09-17
+
+- Malformed upstream search totals and CARP numeric fields now produce upstream/HA verification errors. An already applied operation retains its UUID, partial result and final audit instead of escaping as a client input error. Nine regressions cover post-apply failures and route status.
+- Qualified deletion of the sole editable alias against the real isolated OPNsense pair: both inventories empty before creation and after deletion, with local and peer verification. Clarified the already tested final filter deletion and listing scale limits.
+
 ## [1.15.1] - 2026-09-17
 
 ### Fixed

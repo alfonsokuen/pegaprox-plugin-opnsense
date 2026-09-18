@@ -136,8 +136,17 @@ class VerifiedFirewallWriter:
         count = sum(not (self.resource == "port_forward" and re.fullmatch(r"lockout_\d+", str(row.get("uuid", ""))))
                     for row in out["rows"])
         # DNatController prepends generated lockout rows without adding them to total.
-        if "total" in out and int(out["total"]) > count:
-            raise OPNsenseError("search: incomplete response; refusing partial verification")
+        if "total" in out:
+            total = out["total"]
+            if (isinstance(total, bool) or not isinstance(total, (int, str))
+                    or not re.fullmatch(r"[0-9]+", str(total))):
+                raise OPNsenseError("search: invalid total")
+            try:
+                total = int(total)
+            except ValueError:
+                raise OPNsenseError("search: invalid total") from None
+            if total > count:
+                raise OPNsenseError("search: incomplete response; refusing partial verification")
         return out["rows"]
 
     def get(self, uuid: str, client=None) -> dict:

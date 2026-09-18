@@ -191,3 +191,35 @@ def test_synthetic_lockout_rows_cannot_hide_incomplete_dnat_listing(writer):
     writer.peer.get = lambda *args, **kwargs: {'rows': [{'uuid': 'lockout_0'}], 'total': 1}
     with pytest.raises(OPNsenseError, match='incomplete'):
         writer.verify(UUID, None, writer.peer)
+
+
+@pytest.mark.parametrize('total', [None, 'invalid', {}, True, -1, 0.5])
+def test_malformed_peer_total_after_delete_preserves_applied_result(writer, total):
+    writer.ha_sync_mode = 'automatic'
+    payload = parse_payload('port_forward', DNAT)['rule']
+    writer.client.rows[UUID] = deepcopy(payload)
+    get = writer.peer.get
+    writer.peer.get = lambda path, **kw: {'rows': [], 'total': total} if 'search' in path else get(path, **kw)
+    out = writer.execute('delete', uuid=UUID, revision=hash_payload(payload))
+    assert out['error'] == 'ha_unverified' and out['applied'] and out['verified']
+    assert out['uuid'] == UUID and out['audit']['result'] == 'error'
+    assert 'invalid total' in out['sync']['detail']
+    assert not out['rollback']['attempted'] and not writer.client.rows
+    assert len(writer.audit.tail()) == 2
+    assert sum('delRule' in path for method, path, _ in writer.client.calls if method == 'POST') == 1
+
+
+@pytest.mark.parametrize('field', ['vhid', 'advskew'])
+def test_malformed_carp_after_apply_preserves_result_and_prevents_trigger(writer, field):
+    get = writer.client.get
+    def malformed_after_apply(path, **kw):
+        out = get(path, **kw)
+        if path.endswith('/getVipStatus') and writer.client.rows:
+            out['rows'][0][field] = 'invalid'
+        return out
+    writer.client.get = malformed_after_apply
+    out = writer.execute('create', parse_payload('port_forward', DNAT))
+    assert out['error'] == 'ha_unverified' and out['applied'] and out['verified']
+    assert out['uuid'] == UUID and out['audit']['result'] == 'error'
+    assert not out['sync']['triggered'] and not out['rollback']['attempted']
+    assert UUID in writer.client.rows and len(writer.audit.tail()) == 2

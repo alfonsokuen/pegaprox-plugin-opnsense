@@ -70,10 +70,13 @@ def _primary_vhid(vhids: list[CarpVhid]) -> CarpVhid | None:
     active = [v for v in vhids if v["status"] not in ("DISABLED", "")]
     if not active:
         return None
-    return sorted(
-        active,
-        key=lambda v: (int(v["vhid"] or 9999), int(v["advskew"] or 9999)),
-    )[0]
+    try:
+        return sorted(
+            active,
+            key=lambda v: (int(v["vhid"] or 9999), int(v["advskew"] or 9999)),
+        )[0]
+    except (ValueError, TypeError):
+        raise OPNsenseError("CARP: invalid VHID or advskew in upstream response") from None
 
 
 def _classify_role(enabled: bool, maintenance: bool, vhids: list[CarpVhid]) -> CarpRole:

@@ -89,6 +89,20 @@ def test_native_dnat_contract_and_manual_default():
     assert "associated-rule-id" not in payload
 
 
+def test_peer_invalid_total_returns_partial_result_not_bad_request(monkeypatch, tmp_path):
+    local, peer = Firewall(), Firewall()
+    local.rows[UUID] = firewall.parse_payload('port_forward', DNAT)['rule']
+    revision = hash_payload(local.rows[UUID])
+    peer.get = lambda *args, **kwargs: {'rows': [], 'total': None}
+    monkeypatch.setattr(firewall, 'OPNsenseClient', lambda host: local if host == 'local' else peer)
+    code, out = firewall.build_firewall_action_payload('local', str(tmp_path),
+        {'action': 'delete', 'uuid': UUID, 'revision': revision}, peer_host='peer',
+        ha_verify_attempts=1, ha_verify_backoff=0)
+    assert code == 409 and out['error'] == 'ha_unverified'
+    assert out['data']['uuid'] == UUID and out['data']['applied']
+    assert out['data']['audit']['result'] == 'error' and not local.rows
+
+
 @pytest.mark.parametrize("patch", [{"enabled": "false"}, {"target_port": "65536"}, {"destination_port": "400:100"}, {"target_port": "80:90"}, {"sequence": True}, {"interface": ""}, {"filter_association": "allow"}, {"target": []}])
 def test_bad_input_never_contacts_upstream(monkeypatch, tmp_path, patch):
     monkeypatch.setattr(firewall, "OPNsenseClient", lambda _: pytest.fail("No API client allowed"))
