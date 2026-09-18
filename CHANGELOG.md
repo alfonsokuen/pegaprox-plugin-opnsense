@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.17.0] - 2026-09-18
+
+### Improved
+- Refined administrative UI in the existing dark, light and cloud themes: clear product identity, dynamic version and effective access status, section guidance, consistent tables and inline navigation icons.
+- All nine destinations remain visible on mobile. HA node panels use a balanced layout with explicit actual roles and unavailable states.
+- Read-only lists precede disabled editors; all existing management controls and permission checks remain available.
+- Remove repeated card entrance animation and preserve immediate polling updates, keyboard focus and reduced-motion support.
+- Add browser coverage across three themes and four viewport sizes, including contrast, navigation and fail-closed health labels.
+
 ## [1.16.3] - 2026-09-18
 
 - Keep wide tables and long IPv6 addresses inside their cards on mobile across all dashboard tabs. All nine tabs were checked against production data at 390 px before rollout using the candidate style.

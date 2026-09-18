@@ -154,9 +154,9 @@ def test_html_has_cluster_bar_and_render_helpers():
     assert 'aria-label="Estado del cluster HA"' in body
     assert "renderClusterBar" in body
     assert "renderClusterOverview" in body
-    # Stagger animation uses --i CSS var
-    assert "card-stagger-in" in body
-    assert "applyStagger" in body
+    # Frequent refreshes must not replay decorative entrance animations.
+    assert "card-stagger-in" not in body
+    assert "prepareView" in body
 
 
 def test_html_has_dns_and_wg_tabs():
@@ -281,7 +281,7 @@ let resolveHealth; const clusterBoot=new Promise(resolve=>resolveHealth=resolve)
 const pending={}; const fetchJson=url=>new Promise(resolve=>pending[url]=resolve);
 const rendered=[]; const grid={setAttribute(){},replaceChildren(...nodes){rendered.push(...nodes)}};
 const button={setAttribute(){}}; const $=selector=>selector==='#grid'?grid:button;
-const applyStagger=()=>{}, renderHeader=()=>{}, ingestInterfaces=()=>{}, renderClusterBar=()=>{};
+const prepareView=()=>{}, renderHeader=()=>{}, ingestInterfaces=()=>{}, renderClusterBar=()=>{};
 const renderClusterOverview=()=>['cluster']; const renderError=error=>{throw error};
 const TAB_CONFIG={overview:{endpoint:'/overview'},network:{endpoint:'/network',render:()=>['network']},vpn:{endpoint:'/vpn',render:()=>['vpn']}};
 ''' + loader + '''
