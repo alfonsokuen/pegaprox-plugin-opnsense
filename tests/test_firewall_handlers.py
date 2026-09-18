@@ -224,10 +224,10 @@ def test_legacy_read_remains_available_to_viewer(plugin, monkeypatch, handler, b
     monkeypatch.setattr(plugin, '_load_config', lambda: config(read_only=True))
     monkeypatch.setattr(plugin, '_firewall_can_write', lambda: False)
     monkeypatch.setattr(src.routes, f'build_{builder}_list_payload',
-                        lambda host: (200, {'ok': True, 'host': host.name, 'legacy': True}))
+                        lambda host: (200, {'ok': True, 'host': host.name, 'legacy': True, 'data': {}}))
     with Flask(__name__).test_request_context(method='GET'):
         response, status = getattr(plugin, '_h_' + handler)()
-    assert status == 200 and response.json == {'ok': True, 'host': 'A', 'legacy': True}
+    assert status == 200 and response.json == {'ok': True, 'host': 'A', 'legacy': True, 'data': {'read_only': True}}
 
 
 def test_permission_resolver_abort_fails_closed(plugin, monkeypatch):

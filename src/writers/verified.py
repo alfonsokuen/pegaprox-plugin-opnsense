@@ -28,6 +28,13 @@ _LOCKS_GUARD = threading.Lock()
 _WRITE_LOCKS: dict[tuple[str, str], Any] = {}
 DEFAULT_HA_VERIFY_ATTEMPTS = 6
 DEFAULT_HA_VERIFY_BACKOFF = 0.5
+# Runtime counters returned by alias readback are not editable configuration.
+# Keep unknown/advanced configuration fields in the revision to detect changes.
+ALIAS_RUNTIME_FIELDS = frozenset({
+    "last_updated", "eval_match", "eval_nomatch",
+    "in_pass_b", "in_pass_p", "out_pass_b", "out_pass_p",
+    "in_block_b", "in_block_p", "out_block_b", "out_block_p",
+})
 
 
 def validate_revision(value: Any) -> str:
@@ -153,7 +160,10 @@ class VerifiedFirewallWriter:
         out = (client or self.client).get(f"{self.base}/get{self.suffix}/{uuid}")
         if not isinstance(out, dict) or not isinstance(out.get(self.key), dict) or not out[self.key]:
             raise OPNsenseError("readback: requested object missing or invalid")
-        return selected(out[self.key])
+        detail = selected(out[self.key])
+        if self.resource == "aliases":
+            detail = {key: value for key, value in detail.items() if key not in ALIAS_RUNTIME_FIELDS}
+        return detail
 
     def verify(self, uuid: str, expected: dict | None, client=None) -> bool:
         if expected is None:

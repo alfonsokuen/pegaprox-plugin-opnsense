@@ -77,6 +77,10 @@ class OPNsenseClient:
 
     # ------------------------------------------------------------------ verbs
 
+    def close(self) -> None:
+        """Release connections when an isolated collector finishes."""
+        self._session.close()
+
     def get(self, path: str, **params: Any) -> dict[str, Any]:
         """GET with retry on transient 5xx + connection errors."""
         return self._request("GET", path, params=params, retry=True)

@@ -43,7 +43,7 @@ def stack(tmp_path, monkeypatch):
     # State is deliberately independent of the writer's implementation.
     state = types.SimpleNamespace(rows={k: {} for k in ("d_nat", "filter", "alias")},
         applied={k: {} for k in ("d_nat", "filter", "alias")}, calls=[],
-        reject_validation=False, reject_apply=False, reject_reads=False, reject_delete=False,
+        reject_validation=False, reject_apply=False, reject_reads=False, reject_detail=False, reject_delete=False,
         lose_create_response=False, readonly=False, permitted=True)
     fw = Flask("opnsense_simulator")
 
@@ -60,6 +60,8 @@ def stack(tmp_path, monkeypatch):
                 return jsonify(error="API unavailable"), 404
             return jsonify(rows=[dict(value, uuid=id) for id, value in rows.items()], total=len(rows))
         if action.startswith("get"):
+            if state.reject_detail:
+                return jsonify(error="Detail unavailable"), 404
             return jsonify({key: rows.get(uuid, {})})
         if action in ("apply", "reconfigure"):
             if state.reject_apply:
@@ -110,6 +112,7 @@ def stack(tmp_path, monkeypatch):
     for name in ("port_forward", "rules", "aliases"):
         app.add_url_rule(PREFIX + "/" + name, endpoint=name,
             view_func=getattr(plugin, "_h_" + name), methods=["GET", "POST"])
+    app.add_url_rule(PREFIX + "/health", view_func=plugin._h_health)
     @app.get(PREFIX + "/<endpoint>")
     def unrelated_reads(endpoint):
         return jsonify(ok=True, data={"hosts_configured": 1, "cluster_mode": False,
@@ -352,6 +355,113 @@ def test_unavailable_api_never_enables_write(page, stack):
     expect(page.locator(".managed-table [role=alert]")).to_have_count(2)
     assert all(call[0] == "GET" for call in stack.calls)
     assert all("status of 502" in message for message in page.console_errors)
+
+
+@pytest.mark.parametrize("key,controller", [("portForward", "d_nat"), ("firewallRules", "filter"), ("firewallAliases", "alias")])
+def test_list_has_no_per_row_detail_reads_and_edit_fetches_current_detail(page, stack, key, controller):
+    from playwright.sync_api import expect
+    for index in range(12):
+        stack.rows[controller][str(uuid4())] = {
+            "descr" if controller == "d_nat" else "description": f"summary {index}",
+            "name": f"alias_{index}", "enabled": "1", "disabled": "0", "interface": "wan",
+            "type": "host", "content": "198.51.100.20", "target": "198.51.100.20",
+        }
+    form = open_tab(page, stack, key)
+    assert not [call for call in stack.calls if call[2].startswith("get")], stack.calls
+    uuid = next(iter(stack.rows[controller]))
+    # The detail must reflect changes made after the summary was rendered.
+    stack.rows[controller][uuid]["descr" if controller == "d_nat" else "description"] = "fresh canonical detail"
+    label = "alias_0" if controller == "alias" else "summary 0"
+    page.get_by_role("button", name="Editar " + label, exact=True).click()
+    expect(form.get_by_role("button", name="Guardar cambios")).to_be_visible()
+    expect(page.locator(f"#{key}-description")).to_have_value("fresh canonical detail")
+    reads = [call for call in stack.calls if call[2].startswith("get")]
+    assert len(reads) == 1 and reads[0][1] == controller and reads[0][3] == uuid, reads
+
+
+@pytest.mark.parametrize("action", ["Editar", "Eliminar"])
+def test_failed_detail_preserves_draft_and_never_posts(page, stack, action):
+    from playwright.sync_api import expect
+    posts = []
+    page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
+    stack.rows["filter"][str(uuid4())] = {"description": "existing rule", "enabled": "1", "interface": "wan"}
+    form = open_tab(page, stack, "firewallRules")
+    page.locator("#firewallRules-description").fill("keep my unsaved draft")
+    stack.reject_detail = True
+    page.get_by_role("button", name=action + " existing rule", exact=True).click()
+    expect(form.get_by_role("alert")).to_be_visible()
+    expect(page.locator("#firewallRules-description")).to_have_value("keep my unsaved draft")
+    expect(form.get_by_role("button", name="Crear", exact=True)).to_be_enabled()
+    assert posts == []
+    assert not [call for call in stack.calls if call[0] == "POST"]
+
+
+def test_legacy_dns_readonly_disables_create_delete_with_explanation(page, stack):
+    """UI contract fixture: legacy responses are mocked, not real firewall writes."""
+    from playwright.sync_api import expect
+    def readonly_dns(route):
+        route.fulfill(json={"ok": True, "data": {"read_only": True,
+            "hosts": [{"uuid": str(uuid4()), "hostname": "readonly-host", "domain": "example.test"}],
+            "domains": [], "dots": []}})
+    page.route("**/api/unbound*", readonly_dns)
+    page.goto(stack.url + "/ui#dns")
+    expect(page.locator("#grid")).to_have_attribute("aria-busy", "false")
+    buttons = page.locator("#grid button")
+    assert buttons.count() >= 4
+    for button in buttons.all():
+        expect(button).to_be_disabled()
+    expect(page.locator("#grid [role=status]")).to_have_count(3)
+    for notice in page.locator("#grid [role=status]").all():
+        expect(notice).to_contain_text("solo lectura")
+
+
+def test_cluster_health_enables_both_columns_and_partial_data_stays_visible(page, stack):
+    from playwright.sync_api import expect
+    page.route("**/api/health", lambda route: route.fulfill(json={
+        "plugin": "opnsense", "hosts_configured": 2, "cluster_mode": True, "can_write": False}))
+    page.route("**/api/cluster", lambda route: route.fulfill(json={"ok": True, "data": {
+        "master": "firewall-a", "nodes": {
+            "a": {"name": "firewall-a", "ok": True, "snap": {"system": {"name": "firewall-a"}}},
+            "b": {"name": "firewall-b", "ok": True, "snap": {"system": {"name": "firewall-b"}}},
+        }}}))
+    page.goto(stack.url + "/ui#overview")
+    expect(page.locator("#grid")).to_have_attribute("aria-busy", "false")
+    expect(page.locator(".node-col")).to_have_count(2)
+    expect(page.locator("#cluster-bar")).to_be_visible()
+    expect(page.get_by_text("Datos no disponibles", exact=True)).to_have_count(6)
+    assert page.console_errors == []
+
+
+def test_vpn_tab_uses_dedicated_data_in_cluster_mode(page, stack):
+    """Mock only read payloads to exercise the real browser cluster/VPN routing."""
+    from playwright.sync_api import expect
+    requests = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.route("**/api/health", lambda route: route.fulfill(json={
+        "plugin": "opnsense", "hosts_configured": 2, "cluster_mode": True, "can_write": False}))
+    page.route("**/api/cluster", lambda route: route.fulfill(json={"ok": True, "data": {"nodes": []}}))
+    from src.collectors.vpn import collect_vpn
+    payloads = {
+        '/api/wireguard/general/get': {'general': {'enabled': '1'}},
+        '/api/wireguard/service/show': {'rows': [{'name': 'vpn-cluster-peer', 'connected': '1',
+            'endpoint': '192.0.2.8:51820', 'transfer_rx': 2048, 'transfer_tx': 4096}]},
+        '/api/ipsec/sessions/searchPhase1': {'rows': [{'name': 'ipsec-peer', 'connected': '1',
+            'remote-host': '192.0.2.9', 'local_addr': '192.0.2.10'}]},
+        '/api/openvpn/service/searchSessions': {'rows': [{'description': 'openvpn-peer',
+            'real_address': '192.0.2.11', 'transfer_rx': 2048, 'transfer_tx': 4096}]},
+    }
+    snapshot = collect_vpn(types.SimpleNamespace(get=lambda path: payloads[path]))
+    page.route("**/api/vpn", lambda route: route.fulfill(json={"ok": True, "data": {"vpn": snapshot}}))
+    page.goto(stack.url + "/ui#vpn")
+    expect(page.locator("#grid")).to_contain_text("vpn-cluster-peer")
+    expect(page.locator("#grid")).to_have_attribute("aria-busy", "false")
+    expect(page.locator('[aria-label="Peers WireGuard"]')).to_contain_text('ONLINE')
+    expect(page.locator('[aria-label="Peers WireGuard"]')).to_contain_text('192.0.2.8:51820')
+    expect(page.locator('[aria-label="IPsec phase 1"]')).to_contain_text('ESTABLISHED')
+    expect(page.locator('[aria-label="IPsec phase 1"]')).to_contain_text('192.0.2.9')
+    expect(page.locator('[aria-label="OpenVPN sessions"]')).to_contain_text('192.0.2.11')
+    assert sum(url.endswith("/vpn") for url in requests) == 1
+    assert not any(url.endswith("/overview") for url in requests)
 
 
 @pytest.mark.parametrize("theme,css", [("corp-dark", None), ("corp-light", "theme-light"), ("cloud", "theme-cloud")])

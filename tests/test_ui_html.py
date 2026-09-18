@@ -204,3 +204,180 @@ def test_html_has_responsive_breakpoints():
     body = _content()
     for px in (1280, 1024, 768):
         assert f"max-width: {px}px" in body, f"missing breakpoint at {px}px"
+
+
+def _run_javascript(source: str) -> None:
+    """Exercise the shipped JS directly, with only network/DOM boundaries stubbed."""
+    import shutil
+    import subprocess
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for UI concurrency checks")
+    result = subprocess.run([node, "--input-type=module"], input=source,
+                            text=True, capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+
+
+def test_flat_production_health_is_accepted_only_for_health_endpoint():
+    body = _content()
+    helpers = body[body.index("  const legacyAccess"):body.index("  // ---------- shared header")]
+    _run_javascript('''
+import assert from 'node:assert/strict';
+const ENDPOINTS={health:'/health',vpn:'/vpn'};
+const payload={plugin:'opnsense',cluster_mode:true,hosts_configured:2};
+const fetch=async()=>({ok:true,status:200,json:async()=>payload});
+''' + helpers + '''
+assert.equal((await fetchJson('/health')).cluster_mode,true);
+await assert.rejects(fetchJson('/vpn'));
+''')
+
+
+def test_pending_reads_are_shared_but_never_cached_across_writes():
+    body = _content()
+    helpers = body[body.index("  const legacyAccess"):body.index("  // ---------- shared header")]
+    _run_javascript('''
+import assert from 'node:assert/strict';
+const ENDPOINTS = {nat: '/nat'};
+let calls = [];
+globalThis.fetch = (url, options) => new Promise(resolve => calls.push({url, options, resolve}));
+const response = data => ({ok:true, status:200, json:async()=>({ok:true,data})});
+''' + helpers + '''
+const first = fetchJson('/nat'), shared = fetchJson('/nat');
+assert.equal(first, shared); assert.equal(calls.length, 1);
+calls[0].resolve(response({read_only:false})); await first;
+assert.equal(legacyCan('nat'), true);
+const fresh = fetchJson('/nat'); assert.equal(calls.length, 2);
+calls[1].resolve(response({read_only:true})); await fresh;
+assert.equal(legacyCan('nat'), false);
+const obsolete = fetchJson('/nat');
+const staleCheck = assert.rejects(obsolete, /obsoleta/);
+fetchWrite('/nat', {method:'POST'});
+const afterWrite = fetchJson('/nat'); assert.equal(calls.length, 5);
+calls[2].resolve(response({read_only:false})); await staleCheck;
+calls[4].resolve(response({read_only:true})); await afterWrite;
+assert.equal(legacyCan('nat'), false);
+const old = fetchJson('/nat');
+const oldCheck = assert.rejects(old, /obsoleta/);
+fetchWrite('/nat', {method:'POST'});
+const current = fetchJson('/nat');
+calls[7].resolve(response({read_only:false})); await current;
+assert.equal(legacyCan('nat'), true);
+calls[5].resolve(response({read_only:true})); await oldCheck;
+assert.equal(legacyCan('nat'), true, 'obsolete result must not erase current authorization');
+''')
+
+
+def test_tab_navigation_does_not_wait_for_cluster_or_accept_old_render():
+    body = _content()
+    loader = body[body.index("  async function loadCurrentTab()"):body.index("  function schedulePolling()")]
+    _run_javascript('''
+import assert from 'node:assert/strict';
+let currentTab='overview', activeLoad=null, loadSequence=0;
+const managedBusy=()=>false;
+const cluster={enabled:true}; const ENDPOINTS={cluster:'/cluster'};
+let resolveHealth; const clusterBoot=new Promise(resolve=>resolveHealth=resolve);
+const pending={}; const fetchJson=url=>new Promise(resolve=>pending[url]=resolve);
+const rendered=[]; const grid={setAttribute(){},replaceChildren(...nodes){rendered.push(...nodes)}};
+const button={setAttribute(){}}; const $=selector=>selector==='#grid'?grid:button;
+const applyStagger=()=>{}, renderHeader=()=>{}, ingestInterfaces=()=>{}, renderClusterBar=()=>{};
+const renderClusterOverview=()=>['cluster']; const renderError=error=>{throw error};
+const TAB_CONFIG={overview:{endpoint:'/overview'},network:{endpoint:'/network',render:()=>['network']},vpn:{endpoint:'/vpn',render:()=>['vpn']}};
+''' + loader + '''
+const overview=loadCurrentTab();
+currentTab='network'; const network=loadCurrentTab();
+assert.ok(pending['/network'], 'network starts while health is pending');
+pending['/network']({}); await network; assert.deepEqual(rendered,['network']);
+resolveHealth(); await overview; assert.equal(pending['/cluster'],undefined);
+currentTab='overview'; const slow=loadCurrentTab(); await Promise.resolve();
+assert.ok(pending['/cluster']);
+currentTab='vpn'; const vpn=loadCurrentTab(); pending['/vpn']({}); await vpn;
+pending['/cluster']({}); await slow;
+assert.deepEqual(rendered,['network','vpn']); assert.equal(button.disabled,false);
+''')
+
+
+def test_detail_failure_preserves_draft_and_stale_editor_blocks_delete():
+    body = _content()
+    handlers = body[body.index("  async function managedDetail("):body.index("  function managedSections(")]
+    _run_javascript('''
+import assert from 'node:assert/strict';
+const ENDPOINTS={rules:'/rules'}, managedSpecs={rules:{tab:'firewall',title:'Rules',fields:[],defaults:{}}};
+const state={draft:{description:'unsaved'},dirty:true,uuid:'id',revision:'old',loaded:true,readOnly:false,capabilities:{update:true,delete:true}};
+const managedState={rules:state}; const currentTab='firewall';
+const managedBusy=()=>state.busy;
+const managedCan=(key,action)=>!state.readOnly && state.capabilities[action];
+const renderManagedTab=()=>{}, managedFocus=()=>{};
+const document={getElementById:()=>null}; let confirms=0,writes=0;
+const confirm=()=>{confirms++;return true};
+let fetchJson=async()=>{throw new Error('detail unavailable')};
+let fetchWrite=async()=>{writes++;throw new Error('unexpected write')};
+const managedList=async()=>{};
+''' + handlers + '''
+await managedEdit('rules',{uuid:'id',editable:true});
+assert.equal(state.draft.description,'unsaved'); assert.equal(state.revision,'old');
+assert.equal(state.dirty,true); assert.match(state.error,/detail unavailable/);
+fetchJson=async()=>({read_only:false,capabilities:{delete:true},item:{uuid:'id',revision:'new',editable:true}});
+confirms=0; await managedWrite('rules','delete','id');
+assert.match(state.error,/cambió/); assert.equal(confirms,0); assert.equal(writes,0);
+assert.equal(state.draft.description,'unsaved'); assert.equal(state.busy,false);
+state.uuid='another-entry'; let sent;
+fetchWrite=async(url,options)=>{
+  assert.equal(confirms,1); sent=JSON.parse(options.body); writes++;
+  return {ok:true,json:async()=>({ok:true,data:{verified:true,applied:true}})};
+};
+await managedWrite('rules','delete','id');
+assert.equal(sent.revision,'new'); assert.equal(sent.uuid,'id'); assert.equal(writes,1);
+assert.equal(state.draft.description,'unsaved');
+''')
+
+
+def test_legacy_write_failure_keeps_error_and_draft_without_refresh():
+    body = _content()
+    for key in ("nat", "oneToOne", "dns", "dnsDom", "dnsDot", "dhcp", "dhcpSubnet", "wg"):
+        start = body.index(f"  async function {key}Create()")
+        end = body.index("\n  }", start) + len("\n  }")
+        handler = body[start:end]
+        endpoint = {"dns": "unbound", "dnsDom": "unboundDomains", "dnsDot": "unboundDots"}.get(key, key)
+        form = "natFormState" if key == "nat" else key + "Form"
+        tab = {"oneToOne": "Nat", "nat": "Nat", "dns": "Dns", "dnsDom": "Dns", "dnsDot": "Dns",
+               "dhcp": "Dhcp", "dhcpSubnet": "Dhcp", "wg": "Wg"}[key]
+        listing = "dhcp" if key == "dhcpSubnet" else key
+        _run_javascript(f'''
+import assert from 'node:assert/strict';
+const ENDPOINTS={{{endpoint}:'/write'}};
+let {key}Busy=false, {key}Error='', {form}={{description:'keep draft'}};
+let refreshes=0; const {listing}List=async()=>{{refreshes++; {key}Error=''}};
+const render{tab}Tab=()=>{{}}; const legacyCan=()=>true;
+const fetchWrite=async()=>({{json:async()=>({{ok:false,detail:'upstream validation failure'}})}});
+{handler}
+await {key}Create();
+assert.equal({key}Error,'upstream validation failure');
+assert.equal({form}.description,'keep draft'); assert.equal(refreshes,0);
+assert.equal({key}Busy,false);
+''')
+
+
+def test_legacy_checkbox_and_ip_family_preserve_typed_values():
+    body = _content()
+    helper = body[body.index("  function legacyInput("):body.index("  function crudForm(")]
+    _run_javascript('''
+import assert from 'node:assert/strict';
+const document={createElement:tag=>({tag,style:{},children:[],handlers:{},
+  appendChild(child){this.children.push(child)},setAttribute(){},
+  addEventListener(event,handler){this.handlers[event]=handler}})};
+const el=(tag,props)=>({...props,tag});
+const asBool=value=>value===true || value===1 || value==='1';
+''' + helper + '''
+const draft={enabled:true,ipprotocol:'inet'};
+const checkbox=legacyInput({key:'enabled',type:'checkbox',label:'Habilitado'},draft);
+assert.equal(checkbox.checked,true); checkbox.checked=false; checkbox.handlers.input();
+assert.equal(draft.enabled,false);
+assert.equal(legacyInput({key:'enabled',type:'checkbox'},draft).checked,false);
+const select=legacyInput({key:'ipprotocol',options:[['inet','IPv4'],['inet6','IPv6']]},draft);
+assert.equal(select.tag,'select'); assert.equal(select.value,'inet');
+assert.deepEqual(select.children.map(option=>option.value),['inet','inet6']);
+select.value='inet6'; select.handlers.input(); assert.equal(draft.ipprotocol,'inet6');
+assert.equal(JSON.parse(JSON.stringify(draft)).enabled,false);
+''')

@@ -980,6 +980,7 @@
   // Endpoints resolve under /api/plugins/opnsense/api/<x> when served by
   // PegaProx (this HTML lives at /api/plugins/opnsense/api/ui).
   const ENDPOINTS = {
+    vpn: "../api/vpn",
     health: "../api/health",
     cluster: "../api/cluster",
     overview: "../api/overview",
@@ -1008,7 +1009,44 @@
     lastCluster: null,
   };
 
-  async function fetchJson(url) {
+  // Share only requests that are currently pending; never cache authorization.
+  const legacyAccess = new Map();
+  const legacyEndpoints = {
+    nat: "nat", oneToOne: "oneToOne", dns: "unbound", dnsDom: "unboundDomains",
+    dnsDot: "unboundDots", dhcp: "dhcp", dhcpSubnet: "dhcp", wg: "wg",
+  };
+  function legacyKey(handler) { return handler.name.replace(/(?:Create|Delete)$/, ""); }
+  function legacyCan(key) { return legacyAccess.get(ENDPOINTS[legacyEndpoints[key]]) === true; }
+  function legacyNotice(card, key) {
+    if (legacyCan(key)) return;
+    const known = legacyAccess.has(ENDPOINTS[legacyEndpoints[key]]);
+    card.appendChild(el("p", { class: "managed-message", role: "status", text: known
+      ? "Escritura deshabilitada: modo de solo lectura o permisos insuficientes."
+      : "Escritura deshabilitada hasta confirmar acceso a la API." }));
+  }
+  const pendingReads = new Map();
+  let readEpoch = 0;
+  function fetchWrite(url, options) {
+    readEpoch++; pendingReads.clear();
+    return fetch(url, options);
+  }
+  function fetchJson(url) {
+    if (pendingReads.has(url)) return pendingReads.get(url);
+    const epoch = readEpoch;
+    const request = readJson(url).then(data => {
+      if (epoch !== readEpoch) throw new Error("La consulta quedó obsoleta tras un cambio. Actualiza la vista.");
+      if (Object.values(legacyEndpoints).some(key => ENDPOINTS[key] === url))
+        legacyAccess.set(url, data.read_only === false);
+      return data;
+    }).catch(error => {
+      if (epoch !== readEpoch) throw Object.assign(new Error("La consulta quedó obsoleta tras un cambio."), { kind: "stale" });
+      legacyAccess.delete(url);
+      throw error;
+    }).finally(() => { if (pendingReads.get(url) === request) pendingReads.delete(url); });
+    pendingReads.set(url, request);
+    return request;
+  }
+  async function readJson(url) {
     const r = await fetch(url, { credentials: "same-origin" });
     if (r.status === 401) throw Object.assign(new Error("auth"), { kind: "auth" });
     if (!r.ok) {
@@ -1017,6 +1055,8 @@
       throw Object.assign(new Error(`HTTP ${r.status}`), { kind: "upstream", detail });
     }
     const body = await r.json();
+    // Health is intentionally a flat public plugin contract, unlike data routes.
+    if (url === ENDPOINTS.health && body?.plugin === "opnsense" && typeof body.cluster_mode === "boolean") return body;
     if (!body.ok) throw Object.assign(new Error(body.error || "upstream"), { kind: body.error || "upstream", detail: body.detail });
     return body.data;
   }
@@ -1302,17 +1342,17 @@
       </tr></thead><tbody></tbody>`;
     const tb = $("tbody", table);
     for (const p of rows) {
-      const cls = p.is_connected ? "badge-green" : "badge-muted";
-      const stateText = p.is_connected ? "ONLINE" : "—";
+      const cls = p.connected ? "badge-green" : "badge-muted";
+      const stateText = p.connected ? "ONLINE" : "—";
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><b>${escapeText(p.name || "—")}</b></td>
-        <td class="dim mono">${escapeText((p.pubkey || "").slice(0, 24))}…</td>
+        <td class="dim mono">${escapeText((p.raw?.pubkey || "").slice(0, 24))}…</td>
         <td><span class="badge ${cls}">${stateText}</span></td>
-        <td class="dim mono">${escapeText(p.endpoint || "—")}</td>
-        <td class="num">${fmtBytes(p.transfer_rx)}</td>
-        <td class="num">${fmtBytes(p.transfer_tx)}</td>
-        <td class="dim">${escapeText(p.latest_handshake || "—")}</td>`;
+        <td class="dim mono">${escapeText(p.remote_address || "—")}</td>
+        <td class="num">${p.raw?.transfer_rx == null ? "—" : fmtBytes(p.raw.transfer_rx)}</td>
+        <td class="num">${p.raw?.transfer_tx == null ? "—" : fmtBytes(p.raw.transfer_tx)}</td>
+        <td class="dim">${escapeText(p.raw?.latest_handshake || "—")}</td>`;
       tb.appendChild(tr);
     }
     if (!rows.length) tb.innerHTML = `<tr><td colspan="7" class="dim">Sin peers WireGuard.</td></tr>`;
@@ -1330,13 +1370,13 @@
       <thead><tr><th>Nombre</th><th>Local</th><th>Remoto</th><th>Estado</th></tr></thead><tbody></tbody>`;
     const tb = $("tbody", table);
     for (const p of rows) {
-      const cls = p.is_connected ? "badge-green" : "badge-muted";
+      const cls = p.connected ? "badge-green" : "badge-muted";
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><b>${escapeText(p.name || "—")}</b></td>
-        <td class="dim mono">${escapeText(p.local_addr || "—")}</td>
-        <td class="dim mono">${escapeText(p.remote_addr || "—")}</td>
-        <td><span class="badge ${cls}">${escapeText(p.is_connected ? "ESTABLISHED" : "—")}</span></td>`;
+        <td class="dim mono">${escapeText(p.raw?.local_addr || p.raw?.["local-host"] || "—")}</td>
+        <td class="dim mono">${escapeText(p.remote_address || "—")}</td>
+        <td><span class="badge ${cls}">${escapeText(p.connected ? "ESTABLISHED" : "—")}</span></td>`;
       tb.appendChild(tr);
     }
     if (!rows.length) tb.innerHTML = `<tr><td colspan="4" class="dim">Sin túneles IPsec.</td></tr>`;
@@ -1357,9 +1397,9 @@
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><b>${escapeText(p.name || "—")}</b></td>
-        <td class="dim mono">${escapeText(p.endpoint || "—")}</td>
-        <td class="num">${fmtBytes(p.transfer_rx)}</td>
-        <td class="num">${fmtBytes(p.transfer_tx)}</td>`;
+        <td class="dim mono">${escapeText(p.remote_address || "—")}</td>
+        <td class="num">${p.raw?.transfer_rx == null ? "—" : fmtBytes(p.raw.transfer_rx)}</td>
+        <td class="num">${p.raw?.transfer_tx == null ? "—" : fmtBytes(p.raw.transfer_tx)}</td>`;
       tb.appendChild(tr);
     }
     if (!rows.length) tb.innerHTML = `<tr><td colspan="4" class="dim">Sin sesiones OpenVPN.</td></tr>`;
@@ -1483,7 +1523,7 @@
 
   // ---------- NAT tab ----------
   let natRules = [];
-  let natFormState = { interface: "wan", target: "", source_net: "any", destination_net: "any", description: "", protocol: "any" };
+  let natFormState = { interface: "wan", target: "", source_net: "any", destination_net: "any", description: "", protocol: "any", ipprotocol: "inet", enabled: true };
   let natError = "";
   let natBusy = false;
 
@@ -1492,16 +1532,17 @@
       const data = await fetchJson(ENDPOINTS.nat);
       natRules = data.rules || [];
       natError = "";
-    } catch (e) {
+    } catch (e) { if (e.kind === "stale") return;
       natRules = [];
       natError = e.detail || e.message || "error";
     }
   }
 
   async function natCreate() {
+    if (natBusy || !legacyCan("nat")) return;
     natBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.nat, {
+      const r = await fetchWrite(ENDPOINTS.nat, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -1509,21 +1550,22 @@
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.detail || j.error || "create failed");
-      natFormState = { interface: "wan", target: "", source_net: "any", destination_net: "any", description: "", protocol: "any" };
+      natFormState = { interface: "wan", target: "", source_net: "any", destination_net: "any", description: "", protocol: "any", ipprotocol: "inet", enabled: true };
       natError = "";
     } catch (e) {
       natError = e.message || String(e);
     }
     natBusy = false;
-    await natList();
+    if (!natError) await natList();
     renderNatTab();
   }
 
   async function natDelete(uuid) {
+    if (natBusy || !legacyCan("nat")) return;
     if (!confirm(`¿Eliminar regla NAT ${uuid.slice(0,8)}…?`)) return;
     natBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.nat, {
+      const r = await fetchWrite(ENDPOINTS.nat, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -1536,7 +1578,7 @@
       natError = e.message || String(e);
     }
     natBusy = false;
-    await natList();
+    if (!natError) await natList();
     renderNatTab();
   }
 
@@ -1551,18 +1593,15 @@
       ["source_net", "Source net", "text", false],
       ["destination_net", "Destination net", "text", false],
       ["protocol", "Protocol (any|tcp|udp)", "text", false],
+      ["ipprotocol", "Familia IP", "select", [["inet", "IPv4"], ["inet6", "IPv6"]]],
+      ["enabled", "Habilitado", "checkbox", false],
       ["description", "Descripción", "text", false],
     ];
-    for (const [k, label, type] of inputs) {
+    for (const [k, label, type, options] of inputs) {
       const wrap = el("label", { style: "display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;" }, [
         document.createTextNode(label),
       ]);
-      const input = document.createElement("input");
-      input.type = type;
-      input.value = natFormState[k] || "";
-      input.style.cssText = "background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit;";
-      input.setAttribute("aria-label", label);
-      input.addEventListener("input", (e) => { natFormState[k] = e.target.value; });
+      const input = legacyInput({ key: k, label, type, options: type === "select" ? options : null }, natFormState);
       wrap.appendChild(input);
       grid.appendChild(wrap);
     }
@@ -1570,7 +1609,8 @@
 
     const actions = el("div", { style: "display: flex; gap: 8px; align-items: center; margin-top: 10px;" });
     const btnAdd = el("button", { class: "btn btn-primary", type: "button" }, ["Crear regla"]);
-    btnAdd.disabled = natBusy;
+    legacyNotice(card, "nat");
+    btnAdd.disabled = natBusy || !legacyCan("nat");
     btnAdd.setAttribute("aria-busy", natBusy ? "true" : "false");
     btnAdd.addEventListener("click", natCreate);
     actions.appendChild(btnAdd);
@@ -1607,7 +1647,7 @@
         <td>${stateBadge}</td>
         <td></td>`;
       const btn = el("button", { class: "btn", type: "button", "aria-label": `Eliminar regla ${r.uuid}`, text: "Eliminar" });
-      btn.disabled = natBusy;
+      btn.disabled = natBusy || !legacyCan("nat");
       btn.addEventListener("click", () => natDelete(r.uuid));
       tr.lastElementChild.appendChild(btn);
       tb.appendChild(tr);
@@ -1619,7 +1659,7 @@
 
   // ---------- 1:1 NAT (BINAT) — sub-section under NAT tab ----------
   let oneToOneRows = [];
-  let oneToOneForm = { interface: "wan", external: "", source_net: "", destination_net: "any", type: "binat", description: "" };
+  let oneToOneForm = { interface: "wan", external: "", source_net: "", destination_net: "any", type: "binat", description: "", enabled: true };
   let oneToOneError = "", oneToOneBusy = false;
 
   async function oneToOneList() {
@@ -1627,28 +1667,30 @@
       const data = await fetchJson(ENDPOINTS.oneToOne);
       oneToOneRows = data.rules || [];
       oneToOneError = "";
-    } catch (e) { oneToOneRows = []; oneToOneError = e.detail || e.message || "error"; }
+    } catch (e) { if (e.kind === "stale") return; oneToOneRows = []; oneToOneError = e.detail || e.message || "error"; }
   }
   async function oneToOneCreate() {
+    if (oneToOneBusy || !legacyCan("oneToOne")) return;
     oneToOneBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.oneToOne, {
+      const r = await fetchWrite(ENDPOINTS.oneToOne, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", rule: oneToOneForm }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.detail || j.error);
-      oneToOneForm = { interface: "wan", external: "", source_net: "", destination_net: "any", type: "binat", description: "" };
+      oneToOneForm = { interface: "wan", external: "", source_net: "", destination_net: "any", type: "binat", description: "", enabled: true };
       oneToOneError = "";
     } catch (e) { oneToOneError = e.message; }
-    oneToOneBusy = false; await oneToOneList(); renderNatTab();
+    oneToOneBusy = false; if (!oneToOneError) await oneToOneList(); renderNatTab();
   }
   async function oneToOneDelete(uuid) {
+    if (oneToOneBusy || !legacyCan("oneToOne")) return;
     if (!confirm(`¿Eliminar regla 1:1 ${uuid.slice(0,8)}…?`)) return;
     oneToOneBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.oneToOne, {
+      const r = await fetchWrite(ENDPOINTS.oneToOne, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -1657,10 +1699,11 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       oneToOneError = "";
     } catch (e) { oneToOneError = e.message; }
-    oneToOneBusy = false; await oneToOneList(); renderNatTab();
+    oneToOneBusy = false; if (!oneToOneError) await oneToOneList(); renderNatTab();
   }
 
   function renderNatTab() {
+    if (currentTab !== "nat") return;
     const main = $("#grid");
     const oneToOneCreateForm = crudForm({
       titleText: "[ nueva regla 1:1 (BINAT) ]",
@@ -1671,6 +1714,7 @@
         { key: "destination_net", label: "Destination (any)" },
         { key: "type", label: "Tipo (binat|nat)" },
         { key: "description", label: "Descripción" },
+        { key: "enabled", label: "Habilitado", type: "checkbox" },
       ],
       formState: oneToOneForm, busy: oneToOneBusy, error: oneToOneError, onSubmit: oneToOneCreate,
     });
@@ -1696,7 +1740,7 @@
   const firewallFields = [
     { key: "interface", label: "Interfaz", required: true },
     { key: "ipprotocol", label: "Familia IP", options: [["inet", "IPv4"], ["inet6", "IPv6"], ["inet46", "IPv4 + IPv6"]] },
-    { key: "protocol", label: "Protocolo", options: ["any", "tcp", "udp", "tcp/udp", "icmp", "icmp6"] },
+    { key: "protocol", label: "Protocolo", options: ["any", "tcp", "udp", "tcp/udp", "icmp", "icmp6", "esp", "gre"] },
     { key: "source_net", label: "Origen: IP, red o alias", required: true },
     { key: "source_port", label: "Puerto de origen (vacío: cualquiera)" },
     { key: "destination_net", label: "Destino: IP, red o alias", required: true },
@@ -1724,7 +1768,7 @@
       defaults: { interface: "wan", action: "block", direction: "in", ipprotocol: "inet", protocol: "any", source_net: "any", source_port: "", destination_net: "any", destination_port: "", description: "", enabled: false, log: false, quick: true, sequence: 1 },
       fields: [
         { key: "action", label: "Acción", options: [["pass", "Permitir"], ["block", "Bloquear"], ["reject", "Rechazar"]] },
-        { key: "direction", label: "Dirección", options: [["in", "Entrada"], ["out", "Salida"]] },
+        { key: "direction", label: "Dirección", options: [["in", "Entrada"], ["out", "Salida"], ["any", "Cualquiera"]] },
         ...firewallFields,
         { key: "sequence", label: "Orden", type: "number" },
         { key: "description", label: "Descripción" },
@@ -1759,13 +1803,13 @@
   async function managedList(key) {
     const state = managedState[key], spec = managedSpecs[key];
     try {
-      const data = await fetchJson(ENDPOINTS[key]);
+      const data = await fetchJson(ENDPOINTS[key] + "?view=summary");
       state.rows = data[spec.rows] || [];
       state.readOnly = data.read_only !== false;
       state.capabilities = data.capabilities || {};
       state.loaded = true;
       state.listError = "";
-    } catch (error) {
+    } catch (error) { if (error.kind === "stale") return;
       state.loaded = false;
       state.capabilities = {};
       state.listError = error.detail || error.message || "No se pudo consultar OPNsense.";
@@ -1787,21 +1831,57 @@
   function managedFocus(key, selector = "input, select, textarea") {
     document.querySelector(`#${key}-form ${selector}`)?.focus();
   }
-  function managedEdit(key, row) {
+  async function managedDetail(key, uuid, action) {
+    const data = await fetchJson(ENDPOINTS[key] + "?uuid=" + encodeURIComponent(uuid));
+    const state = managedState[key];
+    state.readOnly = data.read_only !== false;
+    state.capabilities = data.capabilities || {};
+    const item = data.item;
+    if (!managedCan(key, action) || !item || item.uuid !== uuid || item.editable !== true || !item.revision)
+      throw new Error("No se pudo confirmar el acceso y la revisión actual de esta entrada.");
+    return item;
+  }
+  async function managedEdit(key, row) {
     const state = managedState[key], spec = managedSpecs[key];
     if (!managedCan(key, "update") || managedBusy() || row.editable === false || state.reconcileRequired) return;
     if (state.dirty && !confirm("¿Descartar los cambios de este formulario?")) return;
-    state.draft = Object.fromEntries(spec.fields.map(field => [field.key,
-      field.type === "checkbox" ? asBool(row[field.key] ?? spec.defaults[field.key]) : row[field.key] ?? spec.defaults[field.key],
-    ]));
-    state.uuid = row.uuid; state.revision = row.revision; state.dirty = false; state.error = ""; state.success = "";
-    renderManagedTab(key); managedFocus(key);
-    document.getElementById(`${key}-form`)?.scrollIntoView({ block: "nearest" });
+    state.busy = true; state.error = "";
+    renderManagedTab(key);
+    try {
+      const item = await managedDetail(key, row.uuid, "update");
+      state.draft = Object.fromEntries(spec.fields.map(field => [field.key,
+        field.type === "checkbox" ? asBool(item[field.key] ?? spec.defaults[field.key]) : item[field.key] ?? spec.defaults[field.key],
+      ]));
+      state.uuid = item.uuid; state.revision = item.revision; state.dirty = false; state.success = "";
+    } catch (error) {
+      state.error = error.detail || error.message;
+    } finally {
+      state.busy = false; renderManagedTab(key);
+      if (currentTab === spec.tab) {
+        managedFocus(key, state.error ? '[role="alert"]' : 'input, select, textarea');
+        document.getElementById(`${key}-form`)?.scrollIntoView({ block: "nearest" });
+      }
+    }
   }
   async function managedWrite(key, action, uuid = "", revision = "") {
     const state = managedState[key], spec = managedSpecs[key];
     if (managedBusy() || !managedCan(key, action) || (action === "create" && state.reconcileRequired)) return;
-    if (action === "delete" && !confirm(`¿Eliminar ${spec.title}: ${uuid}?`)) return;
+    if (action === "delete") {
+      state.busy = true; state.error = ""; renderManagedTab(key);
+      try {
+        const item = await managedDetail(key, uuid, "delete");
+        // An open editor must not silently lose its optimistic-concurrency check.
+        const expected = state.uuid === uuid ? state.revision : revision;
+        if (expected && expected !== item.revision)
+          throw new Error("La entrada cambió desde que se abrió. Vuelve a editarla antes de eliminarla.");
+        revision = item.revision;
+        if (!confirm(`¿Eliminar ${spec.title}: ${item.description || item.name || uuid}?`)) return;
+      } catch (error) {
+        state.error = error.detail || error.message; return;
+      } finally {
+        state.busy = false; renderManagedTab(key);
+      }
+    }
     const payload = { action };
     if (uuid) payload.uuid = uuid;
     if (action !== "create") payload.revision = action === "update" ? state.revision : revision;
@@ -1811,7 +1891,7 @@
     // A lost response cannot prove that addRule/addItem did not persist.
     let createOutcomeUncertain = action === "create";
     try {
-      const response = await fetch(ENDPOINTS[key], {
+      const response = await fetchWrite(ENDPOINTS[key], {
         method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       const result = await response.json();
@@ -1939,28 +2019,42 @@
   });
 
   // ---------- generic CRUD tab helper (used by DNS + WG) ----------
+  function legacyInput(field, formState) {
+    const input = document.createElement(field.options ? "select" : "input");
+    input.name = field.key;
+    if (field.options) {
+      for (const option of field.options) {
+        const [value, text] = Array.isArray(option) ? option : [option, option];
+        input.appendChild(el("option", { value, text }));
+      }
+    } else input.type = field.type || "text";
+    if (field.type === "checkbox") input.checked = asBool(formState[field.key]);
+    else input.value = formState[field.key] ?? "";
+    input.style.cssText = "background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit;";
+    input.setAttribute("aria-label", field.label);
+    input.addEventListener("input", () => {
+      formState[field.key] = field.type === "checkbox" ? input.checked : input.value;
+    });
+    return input;
+  }
   function crudForm({ titleText, fields, formState, busy, error, onSubmit }) {
     const card = el("section", { class: "card span-12", "aria-label": titleText }, [
       el("p", { class: "title", text: titleText }),
     ]);
+    legacyNotice(card, legacyKey(onSubmit));
     const grid = el("div", { class: "managed-fields", style: "margin-top: 8px;" });
     for (const f of fields) {
       const wrap = el("label", { style: "display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;" }, [
         document.createTextNode(f.label),
       ]);
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = formState[f.key] ?? "";
-      input.style.cssText = "background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit;";
-      input.setAttribute("aria-label", f.label);
-      input.addEventListener("input", (e) => { formState[f.key] = e.target.value; });
+      const input = legacyInput(f, formState);
       wrap.appendChild(input);
       grid.appendChild(wrap);
     }
     card.appendChild(grid);
     const actions = el("div", { style: "display: flex; gap: 8px; align-items: center; margin-top: 10px;" });
     const btn = el("button", { class: "btn btn-primary", type: "button" }, ["Crear"]);
-    btn.disabled = busy; btn.setAttribute("aria-busy", busy ? "true" : "false");
+    btn.disabled = busy || !legacyCan(legacyKey(onSubmit)); btn.setAttribute("aria-busy", busy ? "true" : "false");
     btn.addEventListener("click", onSubmit);
     actions.appendChild(btn);
     if (error) {
@@ -1987,7 +2081,7 @@
       }).join("");
       tr.innerHTML = cells + "<td></td>";
       const btn = el("button", { class: "btn", type: "button", "aria-label": `Eliminar ${r.uuid}`, text: "Eliminar" });
-      btn.disabled = busy;
+      btn.disabled = busy || !legacyCan(legacyKey(onDelete));
       btn.addEventListener("click", () => onDelete(r.uuid));
       tr.lastElementChild.appendChild(btn);
       tb.appendChild(tr);
@@ -2001,7 +2095,7 @@
 
   // ---------- DNS tab (Unbound host overrides) ----------
   let dnsRows = [];
-  let dnsForm = { hostname: "", domain: "", server: "", rr: "A", description: "" };
+  let dnsForm = { hostname: "", domain: "", server: "", rr: "A", description: "", enabled: true };
   let dnsError = "", dnsBusy = false;
 
   async function dnsList() {
@@ -2009,28 +2103,30 @@
       const data = await fetchJson(ENDPOINTS.unbound);
       dnsRows = data.hosts || [];
       dnsError = "";
-    } catch (e) { dnsRows = []; dnsError = e.detail || e.message || "error"; }
+    } catch (e) { if (e.kind === "stale") return; dnsRows = []; dnsError = e.detail || e.message || "error"; }
   }
   async function dnsCreate() {
+    if (dnsBusy || !legacyCan("dns")) return;
     dnsBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.unbound, {
+      const r = await fetchWrite(ENDPOINTS.unbound, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", host: dnsForm }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.detail || j.error);
-      dnsForm = { hostname: "", domain: "", server: "", rr: "A", description: "" };
+      dnsForm = { hostname: "", domain: "", server: "", rr: "A", description: "", enabled: true };
       dnsError = "";
     } catch (e) { dnsError = e.message; }
-    dnsBusy = false; await dnsList(); renderDnsTab();
+    dnsBusy = false; if (!dnsError) await dnsList(); renderDnsTab();
   }
   async function dnsDelete(uuid) {
+    if (dnsBusy || !legacyCan("dns")) return;
     if (!confirm(`¿Eliminar host override ${uuid.slice(0,8)}…?`)) return;
     dnsBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.unbound, {
+      const r = await fetchWrite(ENDPOINTS.unbound, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -2039,11 +2135,11 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       dnsError = "";
     } catch (e) { dnsError = e.message; }
-    dnsBusy = false; await dnsList(); renderDnsTab();
+    dnsBusy = false; if (!dnsError) await dnsList(); renderDnsTab();
   }
   // ---------- DNS — domain overrides (forward an entire zone) ----------
   let dnsDomRows = [];
-  let dnsDomForm = { domain: "", server: "", description: "" };
+  let dnsDomForm = { domain: "", server: "", description: "", enabled: true };
   let dnsDomError = "", dnsDomBusy = false;
 
   async function dnsDomList() {
@@ -2051,28 +2147,30 @@
       const data = await fetchJson(ENDPOINTS.unboundDomains);
       dnsDomRows = data.domains || [];
       dnsDomError = "";
-    } catch (e) { dnsDomRows = []; dnsDomError = e.detail || e.message || "error"; }
+    } catch (e) { if (e.kind === "stale") return; dnsDomRows = []; dnsDomError = e.detail || e.message || "error"; }
   }
   async function dnsDomCreate() {
+    if (dnsDomBusy || !legacyCan("dnsDom")) return;
     dnsDomBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.unboundDomains, {
+      const r = await fetchWrite(ENDPOINTS.unboundDomains, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", domain: dnsDomForm }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.detail || j.error);
-      dnsDomForm = { domain: "", server: "", description: "" };
+      dnsDomForm = { domain: "", server: "", description: "", enabled: true };
       dnsDomError = "";
     } catch (e) { dnsDomError = e.message; }
-    dnsDomBusy = false; await dnsDomList(); renderDnsTab();
+    dnsDomBusy = false; if (!dnsDomError) await dnsDomList(); renderDnsTab();
   }
   async function dnsDomDelete(uuid) {
+    if (dnsDomBusy || !legacyCan("dnsDom")) return;
     if (!confirm(`¿Eliminar domain override ${uuid.slice(0,8)}…?`)) return;
     dnsDomBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.unboundDomains, {
+      const r = await fetchWrite(ENDPOINTS.unboundDomains, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -2081,12 +2179,12 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       dnsDomError = "";
     } catch (e) { dnsDomError = e.message; }
-    dnsDomBusy = false; await dnsDomList(); renderDnsTab();
+    dnsDomBusy = false; if (!dnsDomError) await dnsDomList(); renderDnsTab();
   }
 
   // ---------- DNS — DoT entries ----------
   let dnsDotRows = [];
-  let dnsDotForm = { domain: "", server: "", verify: "", port: "853", description: "" };
+  let dnsDotForm = { domain: "", server: "", verify: "", port: "853", description: "", enabled: true };
   let dnsDotError = "", dnsDotBusy = false;
 
   async function dnsDotList() {
@@ -2094,28 +2192,30 @@
       const data = await fetchJson(ENDPOINTS.unboundDots);
       dnsDotRows = data.dots || [];
       dnsDotError = "";
-    } catch (e) { dnsDotRows = []; dnsDotError = e.detail || e.message || "error"; }
+    } catch (e) { if (e.kind === "stale") return; dnsDotRows = []; dnsDotError = e.detail || e.message || "error"; }
   }
   async function dnsDotCreate() {
+    if (dnsDotBusy || !legacyCan("dnsDot")) return;
     dnsDotBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.unboundDots, {
+      const r = await fetchWrite(ENDPOINTS.unboundDots, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", dot: dnsDotForm }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.detail || j.error);
-      dnsDotForm = { domain: ".", server: "", verify: "", port: "853", description: "" };
+      dnsDotForm = { domain: ".", server: "", verify: "", port: "853", description: "", enabled: true };
       dnsDotError = "";
     } catch (e) { dnsDotError = e.message; }
-    dnsDotBusy = false; await dnsDotList(); renderDnsTab();
+    dnsDotBusy = false; if (!dnsDotError) await dnsDotList(); renderDnsTab();
   }
   async function dnsDotDelete(uuid) {
+    if (dnsDotBusy || !legacyCan("dnsDot")) return;
     if (!confirm(`¿Eliminar DoT entry ${uuid.slice(0,8)}…?`)) return;
     dnsDotBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.unboundDots, {
+      const r = await fetchWrite(ENDPOINTS.unboundDots, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -2124,10 +2224,11 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       dnsDotError = "";
     } catch (e) { dnsDotError = e.message; }
-    dnsDotBusy = false; await dnsDotList(); renderDnsTab();
+    dnsDotBusy = false; if (!dnsDotError) await dnsDotList(); renderDnsTab();
   }
 
   function renderDnsTab() {
+    if (currentTab !== "dns") return;
     const form = crudForm({
       titleText: "[ nuevo host override ]",
       fields: [
@@ -2136,6 +2237,7 @@
         { key: "server", label: "IP destino" },
         { key: "rr", label: "RR (A|AAAA|MX)" },
         { key: "description", label: "Descripción" },
+        { key: "enabled", label: "Habilitado", type: "checkbox" },
       ],
       formState: dnsForm, busy: dnsBusy, error: dnsError, onSubmit: dnsCreate,
     });
@@ -2158,6 +2260,7 @@
         { key: "domain", label: "Zona (internal.lab.local)" },
         { key: "server", label: "Resolver IP" },
         { key: "description", label: "Descripción" },
+        { key: "enabled", label: "Habilitado", type: "checkbox" },
       ],
       formState: dnsDomForm, busy: dnsDomBusy, error: dnsDomError, onSubmit: dnsDomCreate,
     });
@@ -2180,6 +2283,7 @@
         { key: "verify", label: "SNI / cert hostname" },
         { key: "port", label: "Puerto (853)" },
         { key: "description", label: "Descripción" },
+        { key: "enabled", label: "Habilitado", type: "checkbox" },
       ],
       formState: dnsDotForm, busy: dnsDotBusy, error: dnsDotError, onSubmit: dnsDotCreate,
     });
@@ -2206,9 +2310,10 @@
   let dhcpSubnetError = "", dhcpSubnetBusy = false;
 
   async function dhcpSubnetCreate() {
+    if (dhcpSubnetBusy || !legacyCan("dhcpSubnet")) return;
     dhcpSubnetBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.dhcpSubnet, {
+      const r = await fetchWrite(ENDPOINTS.dhcpSubnet, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", subnet: dhcpSubnetForm }),
@@ -2218,13 +2323,14 @@
       dhcpSubnetForm = { subnet: "", description: "", pools: "", next_server: "" };
       dhcpSubnetError = "";
     } catch (e) { dhcpSubnetError = e.message; }
-    dhcpSubnetBusy = false; await dhcpList(); renderDhcpTab();
+    dhcpSubnetBusy = false; if (!dhcpSubnetError) await dhcpList(); renderDhcpTab();
   }
   async function dhcpSubnetDelete(uuid) {
+    if (dhcpSubnetBusy || !legacyCan("dhcpSubnet")) return;
     if (!confirm(`¿Eliminar subnet ${uuid.slice(0,8)}…? Si tiene reservations asociadas también se borran.`)) return;
     dhcpSubnetBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.dhcpSubnet, {
+      const r = await fetchWrite(ENDPOINTS.dhcpSubnet, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -2233,7 +2339,7 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       dhcpSubnetError = "";
     } catch (e) { dhcpSubnetError = e.message; }
-    dhcpSubnetBusy = false; await dhcpList(); renderDhcpTab();
+    dhcpSubnetBusy = false; if (!dhcpSubnetError) await dhcpList(); renderDhcpTab();
   }
 
   // ---------- DHCP tab (Kea reservations) ----------
@@ -2247,12 +2353,13 @@
       dhcpRows = data.reservations || [];
       dhcpSubnets = data.subnets || [];
       dhcpError = "";
-    } catch (e) { dhcpRows = []; dhcpSubnets = []; dhcpError = e.detail || e.message || "error"; }
+    } catch (e) { if (e.kind === "stale") return; dhcpRows = []; dhcpSubnets = []; dhcpError = e.detail || e.message || "error"; }
   }
   async function dhcpCreate() {
+    if (dhcpBusy || !legacyCan("dhcp")) return;
     dhcpBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.dhcp, {
+      const r = await fetchWrite(ENDPOINTS.dhcp, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", reservation: dhcpForm }),
@@ -2262,13 +2369,14 @@
       dhcpForm = { subnet: "", ip_address: "", hw_address: "", hostname: "", description: "" };
       dhcpError = "";
     } catch (e) { dhcpError = e.message; }
-    dhcpBusy = false; await dhcpList(); renderDhcpTab();
+    dhcpBusy = false; if (!dhcpError) await dhcpList(); renderDhcpTab();
   }
   async function dhcpDelete(uuid) {
+    if (dhcpBusy || !legacyCan("dhcp")) return;
     if (!confirm(`¿Eliminar reservation ${uuid.slice(0,8)}…?`)) return;
     dhcpBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.dhcp, {
+      const r = await fetchWrite(ENDPOINTS.dhcp, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -2277,9 +2385,10 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       dhcpError = "";
     } catch (e) { dhcpError = e.message; }
-    dhcpBusy = false; await dhcpList(); renderDhcpTab();
+    dhcpBusy = false; if (!dhcpError) await dhcpList(); renderDhcpTab();
   }
   function renderDhcpTab() {
+    if (currentTab !== "dhcp") return;
     const main = $("#grid");
     const subnetForm = crudForm({
       titleText: "[ nueva subnet Kea ]",
@@ -2332,7 +2441,7 @@
 
   // ---------- WG peers tab ----------
   let wgRows = [];
-  let wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "" };
+  let wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "", enabled: true };
   let wgError = "", wgBusy = false;
 
   async function wgList() {
@@ -2340,28 +2449,30 @@
       const data = await fetchJson(ENDPOINTS.wg);
       wgRows = data.peers || [];
       wgError = "";
-    } catch (e) { wgRows = []; wgError = e.detail || e.message || "error"; }
+    } catch (e) { if (e.kind === "stale") return; wgRows = []; wgError = e.detail || e.message || "error"; }
   }
   async function wgCreate() {
+    if (wgBusy || !legacyCan("wg")) return;
     wgBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.wg, {
+      const r = await fetchWrite(ENDPOINTS.wg, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", peer: wgForm }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.detail || j.error);
-      wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "" };
+      wgForm = { name: "", pubkey: "", tunneladdress: "", keepalive: "25", psk: "", enabled: true };
       wgError = "";
     } catch (e) { wgError = e.message; }
-    wgBusy = false; await wgList(); renderWgTab();
+    wgBusy = false; if (!wgError) await wgList(); renderWgTab();
   }
   async function wgDelete(uuid) {
+    if (wgBusy || !legacyCan("wg")) return;
     if (!confirm(`¿Eliminar peer ${uuid.slice(0,8)}…?`)) return;
     wgBusy = true;
     try {
-      const r = await fetch(ENDPOINTS.wg, {
+      const r = await fetchWrite(ENDPOINTS.wg, {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", uuid }),
@@ -2370,9 +2481,10 @@
       if (!j.ok) throw new Error(j.detail || j.error);
       wgError = "";
     } catch (e) { wgError = e.message; }
-    wgBusy = false; await wgList(); renderWgTab();
+    wgBusy = false; if (!wgError) await wgList(); renderWgTab();
   }
   function renderWgTab() {
+    if (currentTab !== "wg") return;
     const form = crudForm({
       titleText: "[ nuevo WireGuard peer ]",
       fields: [
@@ -2381,6 +2493,7 @@
         { key: "tunneladdress", label: "Tunnel address (10.99.0.5/32)" },
         { key: "keepalive", label: "Keepalive (s)" },
         { key: "psk", label: "PSK (opcional)" },
+        { key: "enabled", label: "Habilitado", type: "checkbox" },
       ],
       formState: wgForm, busy: wgBusy, error: wgError, onSubmit: wgCreate,
     });
@@ -2606,7 +2719,7 @@
   const TAB_CONFIG = {
     overview: { endpoint: ENDPOINTS.overview, render: renderOverview, refresh: 10_000 },
     network:  { endpoint: ENDPOINTS.network,  render: renderNetwork,  refresh: 10_000 },
-    vpn:      { endpoint: ENDPOINTS.overview, render: renderVPN,      refresh: 30_000 },
+    vpn:      { endpoint: ENDPOINTS.vpn, render: renderVPN,      refresh: 30_000 },
     logs:     { endpoint: ENDPOINTS.logs + "?limit=200", render: renderLogs, refresh: 10_000 },
     nat:      { custom: true, refresh: 0 },
     firewall: { custom: true, refresh: 0 },
@@ -2617,7 +2730,8 @@
 
   let currentTab = "overview";
   let pollTimer = null;
-  let inFlight = false;
+  let activeLoad = null;
+  let loadSequence = 0;
 
   function setActiveTab(name) {
     if (!TAB_CONFIG[name]) name = "overview";
@@ -2659,9 +2773,11 @@
   }
 
   async function loadCurrentTab() {
-    if (inFlight || managedBusy()) return;
-    inFlight = true;
+    if (managedBusy() || activeLoad?.tab === currentTab) return;
     const requestedTab = currentTab;
+    const requestId = ++loadSequence;
+    activeLoad = { tab: requestedTab, id: requestId };
+    const isCurrent = () => currentTab === requestedTab && activeLoad?.id === requestId;
     const cfg = TAB_CONFIG[requestedTab];
     const main = $("#grid");
     main.setAttribute("aria-busy", "true");
@@ -2671,56 +2787,66 @@
     try {
       if (cfg.custom && currentTab === "nat") {
         await Promise.all([natList(), oneToOneList(), managedList("portForward")]);
-        if (currentTab !== requestedTab) return;
+        if (!isCurrent()) return;
         renderNatTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
       if (cfg.custom && currentTab === "firewall") {
         await Promise.all([managedList("firewallRules"), managedList("firewallAliases")]);
-        if (currentTab !== requestedTab) return;
+        if (!isCurrent()) return;
         renderFirewallTab();
         return;
       }
       if (cfg.custom && currentTab === "dns") {
         await Promise.all([dnsList(), dnsDomList(), dnsDotList()]);
-        if (currentTab !== requestedTab) return;
+        if (!isCurrent()) return;
         renderDnsTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
       if (cfg.custom && currentTab === "dhcp") {
         await dhcpList();
-        if (currentTab !== requestedTab) return;
+        if (!isCurrent()) return;
         renderDhcpTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
       if (cfg.custom && currentTab === "wg") {
         await wgList();
-        if (currentTab !== requestedTab) return;
+        if (!isCurrent()) return;
         renderWgTab();
         main.setAttribute("aria-busy", "false");
         return;
       }
-      const data = await fetchJson(cfg.endpoint);
-      if (currentTab !== requestedTab) return;
+      // Only overview needs HA discovery before choosing its endpoint.
+      if (requestedTab === "overview") await clusterBoot;
+      if (!isCurrent()) return;
+      const clusterView = requestedTab === "overview" && cluster.enabled;
+      const data = await fetchJson(clusterView ? ENDPOINTS.cluster : cfg.endpoint);
+      if (!isCurrent()) return;
       // overview/network include system info we use for the conn header
       if (data.system) renderHeader(data.system);
       // Ingest iface counters for live rate/sparklines.
       if (data.interfaces) ingestInterfaces(data.interfaces);
-      const nodes = cfg.render(data);
+      if (clusterView) {
+        cluster.lastCluster = data;
+        renderClusterBar({ ok: true, data });
+      }
+      const nodes = clusterView ? renderClusterOverview({ data }) : cfg.render(data);
       if (nodes !== null) {
         main.replaceChildren(...nodes);
       }
       main.setAttribute("aria-busy", "false");
     } catch (e) {
-      if (currentTab === requestedTab) renderError(e);
+      if (isCurrent() && e.kind !== "stale") renderError(e);
     } finally {
-      inFlight = false;
-      btn.setAttribute("aria-busy", "false");
-      btn.disabled = false;
-      if (currentTab !== requestedTab) queueMicrotask(loadCurrentTab);
+      if (isCurrent()) {
+        activeLoad = null;
+        btn.setAttribute("aria-busy", "false");
+        btn.disabled = false;
+        applyStagger();
+      }
     }
   }
 
@@ -2843,12 +2969,12 @@
           ? `${(s?.carp?.vhids||[]).length} VHIDs · pfSync ${s?.hasync?.enabled ? "on" : "off"}`
           : "CARP disabled" }),
       ]));
-      const certs = s?.certs?.expiring_soon_count ?? 0;
-      col.appendChild(el("section", { class: "card" }, [
-        el("div", { class: "title", text: "certs / servicios" }),
-        el("div", { class: "lead", text: certs ? `${certs} venciendo` : "OK" }),
-        el("div", { class: "sub", text: `${(s?.services?.items || []).filter(x=>x.running).length} servicios up` }),
-      ]));
+      for (const [key, label, render] of [["services", "Servicios", cellServices], ["certs", "Certificados", cellCerts], ["vpn", "VPN", cellVPNSummary]]) {
+        col.appendChild(s[key] ? render(s[key]) : el("section", { class: "card", "aria-label": label }, [
+          el("div", { class: "title", text: label }),
+          el("div", { class: "sub", text: "Datos no disponibles" }),
+        ]));
+      }
       return col;
     };
     grid.appendChild(buildCol("a"));
@@ -2891,7 +3017,7 @@
       const data = await fetchJson(ENDPOINTS.cluster);
       cluster.lastCluster = data;
       renderClusterBar({ ok: true, data });
-    } catch (e) {
+    } catch (e) { if (e.kind === "stale") return;
       // 400 single_host is expected; other errors are silent in the bar
       // because the per-tab fetch will surface its own error.
       $("#cluster-bar").hidden = true;
@@ -2904,7 +3030,7 @@
       cluster.info = h.data || h;
       cluster.enabled = !!(cluster.info?.cluster_mode);
       if ((cluster.info?.hosts_configured ?? 0) >= 2) {
-        await refreshClusterBar();
+        if (currentTab !== "overview" || !cluster.enabled) void refreshClusterBar();
         // Re-poll the cluster bar every 30s so role flips surface promptly.
         setInterval(refreshClusterBar, 30_000);
       }
@@ -2926,44 +3052,8 @@
     }
   }
 
-  // Patch loadCurrentTab: for the overview tab, when cluster mode is on,
-  // call /api/cluster and route through renderClusterOverview. Otherwise
-  // fall through to the existing behaviour.
-  const _origLoadCurrentTab = loadCurrentTab;
-  loadCurrentTab = async function patchedLoadCurrentTab() {
-    if (currentTab === "overview" && cluster.enabled) {
-      if (inFlight) return;
-      inFlight = true;
-      const main = $("#grid");
-      main.setAttribute("aria-busy", "true");
-      const btn = $("#btn-refresh");
-      btn.setAttribute("aria-busy", "true");
-      btn.disabled = true;
-      try {
-        const data = await fetchJson(ENDPOINTS.cluster);
-        if (currentTab !== "overview") return;
-        cluster.lastCluster = data;
-        renderClusterBar({ ok: true, data });
-        const nodes = renderClusterOverview({ data });
-        main.replaceChildren(...nodes);
-        applyStagger();
-        main.setAttribute("aria-busy", "false");
-      } catch (e) {
-        if (currentTab === "overview") renderError(e);
-      } finally {
-        inFlight = false;
-        btn.setAttribute("aria-busy", "false");
-        btn.disabled = false;
-        if (currentTab !== "overview") queueMicrotask(loadCurrentTab);
-      }
-      return;
-    }
-    await _origLoadCurrentTab();
-    applyStagger();
-  };
-
-  // initial
-  bootCluster();
+  // Health discovery and the selected tab start independently.
+  const clusterBoot = bootCluster();
   const initialTab = location.hash.replace("#", "") || "overview";
   switchTab(initialTab);
 </script>

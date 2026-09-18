@@ -185,6 +185,8 @@ def _cluster_hosts_from_config():
 
 def _h_health():
     cfg = _load_config()
+    read_only = cfg.get('read_only') is not False
+    can_write = not read_only and _firewall_can_write()
     return {
         'plugin': PLUGIN_ID,
         'version': PLUGIN_VERSION,
@@ -192,6 +194,8 @@ def _h_health():
         'read_only': cfg.get('read_only') is not False,
         'cluster_mode': _is_cluster_mode(cfg),
         'hosts_configured': len(cfg.get('opnsense_hosts') or []),
+        'can_write': can_write,
+        'write_restriction': 'read_only' if read_only else 'permission' if not can_write else None,
     }
 
 
@@ -293,14 +297,20 @@ def _management_context():
 
 
 def _h_firewall_management(resource):
-    from flask import jsonify
+    from flask import jsonify, request
     from src.routes.firewall import build_firewall_action_payload, build_firewall_list_payload
 
     context, denied = _management_context()
     if denied is not None:
         return denied
     if not context['write']:
-        status, payload = build_firewall_list_payload(context['host'], resource)
+        if 'uuid' in request.args:
+            from src.routes.firewall import build_firewall_detail_payload
+            status, payload = build_firewall_detail_payload(context['host'], resource, request.args['uuid'])
+        elif request.args.get('view') == 'summary':
+            status, payload = build_firewall_list_payload(context['host'], resource, summary=True)
+        else:
+            status, payload = build_firewall_list_payload(context['host'], resource)
         if payload.get('ok'):
             payload['data']['read_only'] = context['read_only'] or not _firewall_can_write()
         return jsonify(payload), status
@@ -324,6 +334,8 @@ def _h_legacy_management(list_builder, action_builder):
         return denied
     if not context['write']:
         status, payload = list_builder(context['host'])
+        if payload.get('ok'):
+            payload['data']['read_only'] = context['read_only'] or not _firewall_can_write()
     else:
         status, payload = action_builder(
             context['host'], PLUGIN_DIR, context['body'],
@@ -395,6 +407,16 @@ def _h_logs():
     if host is None:
         return _unconfigured_response()
     status, payload = build_logs_payload(host, limit=request.args.get('limit', 100))
+    return jsonify(payload), status
+
+
+def _h_vpn():
+    from flask import jsonify
+    from src.routes.vpn import build_vpn_payload
+    host = _first_host_from_config()
+    if host is None:
+        return _unconfigured_response()
+    status, payload = build_vpn_payload(host)
     return jsonify(payload), status
 
 
@@ -478,6 +500,7 @@ def register(app=None):  # noqa: ARG001 — app passed by PegaProx loader
         'overview': _h_overview,
         'cluster': _h_cluster,
         'network': _h_network,
+        'vpn': _h_vpn,
         'logs': _h_logs,
         'dhcp': _h_dhcp,
         'dhcp_subnet': _h_dhcp_subnet,

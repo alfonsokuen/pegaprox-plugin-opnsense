@@ -2,7 +2,7 @@
 
 Monitor and configure OPNsense firewalls (HA-aware) from the PegaProx dashboard.
 
-[![version](https://img.shields.io/badge/version-1.15.2-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.16.0-blue)](CHANGELOG.md)
 [![pegaprox](https://img.shields.io/badge/pegaprox-0.9.9.3+-orange)](https://github.com/PegaProx/project-pegaprox)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11+-yellow)](#development)
@@ -27,12 +27,14 @@ Wires an OPNsense firewall into the PegaProx admin panel. Read-only monitoring o
 - Recent firewall log (limit-bounded)
 - Cert inventory + expiry warnings (≤30 days)
 
-### Configuration (write — 9 writers)
+### Configuration (write)
 
 | Writer | Endpoint | Surface |
 |---|---|---|
 | `AliasWriter` | `/api/firewall/alias/*` | host/network/port/url/urltable/geoip/external |
 | `RuleWriter` | `/api/firewall/filter/*` | pass/block/reject per interface |
+| `VerifiedFirewallWriter` (DNAT) | `/api/firewall/d_nat/*` | destination NAT with canonical readback and revision checks |
+| `DhcpSubnetWriter` | `/api/kea/dhcpv4/*Subnet` | Kea DHCPv4 subnets |
 | `NatWriter` | `/api/firewall/source_nat/*` | outbound NAT |
 | `OneToOneNatWriter` | `/api/firewall/one_to_one/*` | BINAT / 1:1 NAT |
 | `UnboundWriter` | `/api/unbound/settings/{add,del,search}HostOverride` | DNS host overrides |
@@ -51,17 +53,18 @@ validate → POST → apply/reconfigure → (optional) HA syncTo → audit
 
 **Audit log** (`state/audit.jsonl`) — append-only JSONL with `payload_sha256` per row: SHA-256 of the canonical-JSON sent to OPNsense. Correlates a known payload with the recorded operation without storing that payload; this is not a cryptographically authenticated log chain. An auditor replaying a known input can verify the historical write referenced that exact payload.
 
-**Out-of-scope on OPNsense 26.x**: port-forward (rdr) — `/api/firewall/{forward,portfwd,nat}/*` returns 404; rdr lives in GUI/XML-config only until upstream ships an API.
+Destination NAT uses the native `/api/firewall/d_nat/*` API, qualified on OPNsense 26.1.2. Older or unsupported endpoints return an explicit error; the plugin does not rewrite XML configuration.
 
 ### Observability
 
 - `GET /api/plugins/opnsense/api/overview` — single JSON snapshot for the Overview tab
+- `GET /api/plugins/opnsense/api/vpn` — WireGuard, IPsec and OpenVPN status without a full overview request
 - `GET /api/plugins/opnsense/api/network` — interfaces + gateways + routes + ARP + NDP
 - `GET /api/plugins/opnsense/api/logs?limit=N` — paginated firewall log tail (default 100, capped at 500)
 - `GET /api/plugins/opnsense/api/metrics` — Prometheus text exposition (no `prometheus_client` dependency)
 - `GET /api/plugins/opnsense/api/health` — plugin liveness + config presence
 
-### Dashboard UI — 8 tabs
+### Dashboard UI — 9 tabs
 
 Hash-routed (`#overview`, `#network`, `#vpn`, `#logs`, `#nat`, `#firewall`, `#dns`, `#dhcp`, `#wg`), ARIA tablist wrapped in `<nav aria-label>`, zero front-end dependencies:
 
@@ -74,8 +77,8 @@ Hash-routed (`#overview`, `#network`, `#vpn`, `#logs`, `#nat`, `#firewall`, `#dn
 | **NAT** | Destination NAT create/edit/delete, plus existing outbound NAT and 1:1 BINAT |
 | **Firewall** | Filter rules and aliases create/edit/delete; explicit read-only state |
 | **DNS** | three sub-sections — host overrides + domain overrides + **DoT entries** |
-| **DHCP** | Kea DHCPv4 reservations (subnet UUID + IP + MAC + hostname) |
-| **WG peers** | WireGuard peer CRUD (name, pubkey, tunnel address, keepalive, optional PSK) |
+| **DHCP** | Kea DHCPv4 reservations (subnet UUID + IP + MAC + hostname) and subnets |
+| **WG peers** | WireGuard peer list/create/delete (name, pubkey, tunnel address, keepalive, optional PSK) |
 
 Theme-aware: PegaProx passes `?theme=corp-light|corp-dark|cloud` and the plugin honours all three (the **cloud** value repaints it with the Modern view tokens — deep-blue surfaces, cyan accent). Tokens lifted from `docker_swarm/swarm.html` so the iframe blends with the host dashboard.
 

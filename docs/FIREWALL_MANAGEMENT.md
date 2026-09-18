@@ -1,4 +1,4 @@
-# Firewall management, v1.15.2
+# Firewall management, v1.16.0
 
 Native Python implementation using the official OPNsense API. AdmixCentral informed the feature comparison; this plugin does not embed it or require its PHP stack.
 
@@ -8,7 +8,11 @@ All paths use `/api/plugins/opnsense/api/` as prefix. `GET port_forward`, `GET r
 
 ### Listing scale boundary
 
-Each listing performs one search plus one sequential detail request per editable object (N+1). Detail reads supply canonical values and revision hashes; the release does not implement pagination or lazy editor loading. Only small inventories have been qualified. There is no measured safe maximum or latency guarantee for hundreds of objects: network timeouts and read retries can occupy a worker for minutes. Measure listing latency on the intended inventory before adoption; large or slow inventories require a paginated/lazy-detail implementation first. If an object disappears between search and detail, the complete request fails with an upstream error; refresh after concurrent changes settle. Do not interpret this as an empty inventory.
+The UI uses `GET ?view=summary`, which performs one search without reading each object's detail. Editable summary rows have `detail_required:true` and no revision; they are display data, not editor payloads. `GET ?uuid=<canonical UUID>` returns `data.item` with canonical editable values and a fresh revision. The UI reads detail before editing or confirming deletion, preserves drafts on failure and checks stale edits rather than replacing their revision silently.
+
+Default GET without query parameters retains the original full-list contract: one search plus one sequential detail request per editable object (N+1), for compatibility with existing callers. A disappearing object makes that full-list request fail rather than report a false empty inventory. The UI no longer pays this per-row cost, but large response/DOM rendering and pagination remain unqualified; no numeric maximum or load guarantee is claimed.
+
+Alias revision hashes omit known runtime traffic counters and `last_updated`; all unknown/advanced configuration fields remain included. This prevents activity on an alias from invalidating an unchanged editor while retaining conflict detection for actual settings.
 
 `POST` to the same paths accepts `action: create|update|delete`. Update/delete require a canonical UUID and the original row's `revision` hash. A stale revision returns 409 before mutation; reopen the object after reviewing its current state. Creation/update require `rule` or `alias`. PUT/DELETE methods are not accepted. PegaProx authenticates the session; writes additionally require its `plugins.manage` permission and explicit `read_only:false` in the plugin config. HTTP headers supplied by users cannot select the audit actor.
 

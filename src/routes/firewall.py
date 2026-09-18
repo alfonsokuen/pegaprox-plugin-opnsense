@@ -116,8 +116,8 @@ def normalize(resource: str, row: dict) -> dict:
         for group in ("source", "destination"):
             nested = row.get(group, {})
             for suffix, key in (("network", "net"), ("port", "port")):
-                result[f"{group}_{key}"] = row.get(f"{group}.{suffix}", nested.get(suffix, "") if isinstance(nested, dict) else "")
-        result.update(target_port=row.get("local-port", ""), description=row.get("descr", ""),
+                result[f"{group}_{key}"] = row.get(f"{group}.{suffix}", nested.get(suffix, row.get(f"{group}_{key}", "")) if isinstance(nested, dict) else row.get(f"{group}_{key}", ""))
+        result.update(target_port=row.get("local-port", row.get("target_port", "")), description=row.get("descr", row.get("description", "")),
             enabled=str(row.get("disabled", "0")) != "1", filter_association=row.get("pass", ""))
     else:
         result["enabled"] = str(row.get("enabled", "1")) == "1"
@@ -138,7 +138,7 @@ def _error(exc):
     return code, result
 
 
-def build_firewall_list_payload(host, resource="port_forward") -> tuple[int, dict[str, Any]]:
+def build_firewall_list_payload(host, resource="port_forward", *, summary=False) -> tuple[int, dict[str, Any]]:
     if resource not in SPECS:
         return 400, {"ok": False, "error": "bad_request", "detail": "Unknown resource"}
     try:
@@ -150,6 +150,9 @@ def build_firewall_list_payload(host, resource="port_forward") -> tuple[int, dic
             except (ValueError, TypeError):
                 rows.append({**normalize(resource, row), "editable": False})
                 continue
+            if summary:
+                rows.append({**normalize(resource, row), "uuid": uuid, "editable": True, "detail_required": True})
+                continue
             # Search grids contain display values and can omit form fields.
             # Always obtain the actual editable values before offering editing.
             detail = writer.get(uuid)
@@ -158,6 +161,23 @@ def build_firewall_list_payload(host, resource="port_forward") -> tuple[int, dic
         return 200, {"ok": True, "data": {key: rows, "total": len(rows), "supported": True,
             "capabilities": {"create": True, "update": True, "delete": True}}}
     except (OPNsenseError, ValueError) as exc:
+        return _error(exc)
+
+
+def build_firewall_detail_payload(host, resource, uuid) -> tuple[int, dict[str, Any]]:
+    try:
+        if resource not in SPECS:
+            raise ValueError("Unknown resource")
+        uuid = validate_uuid(uuid)
+    except (ValueError, TypeError) as exc:
+        return 400, {"ok": False, "error": "bad_request", "detail": str(exc)}
+    try:
+        writer = VerifiedFirewallWriter(OPNsenseClient(host), None, resource)
+        detail = writer.get(uuid)
+        item = {**normalize(resource, detail), "uuid": uuid, "editable": True, "revision": hash_payload(detail)}
+        return 200, {"ok": True, "data": {"item": item, "supported": True,
+            "capabilities": {"create": True, "update": True, "delete": True}}}
+    except OPNsenseError as exc:
         return _error(exc)
 
 

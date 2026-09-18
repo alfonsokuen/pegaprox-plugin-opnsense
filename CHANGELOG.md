@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — versioning: [SemVer](https://semver.org/).
 
+## [1.16.0] - 2026-09-18
+
+### Improved
+- Firewall UI lists use one upstream search, loading canonical details and revisions only when editing or preparing deletion. The existing full-list API remains compatible.
+- Concurrent browser reads are shared without retaining stale cache entries. Tabs load independently of cluster polling; network collectors run in bounded parallel sessions.
+
+### Fixed
+- VPN has a dedicated status route, fixing the cluster overview payload mismatch. Cluster columns expose existing services, certificate and VPN details.
+- Legacy management controls respect effective read-only permissions and preserve write errors and drafts. Firewall protocol/direction options supported by the backend are available in the form.
+- Volatile alias traffic counters and timestamps no longer cause false optimistic-revision conflicts; real configuration changes remain protected.
+- Accept the flat health contract so HA mode loads both node columns; render VPN status and addresses from the collector's actual fields. Partial node snapshots remain visible with unavailable-data notices.
+
+### Upgrade
+- Refresh open alias editors after upgrading: the revision calculation changed to exclude runtime counters. A form opened before the upgrade can receive a safe revision conflict and must be reopened.
+
 ## [1.15.2] - 2026-09-17
 
 - Malformed upstream search totals and CARP numeric fields now produce upstream/HA verification errors. An already applied operation retains its UUID, partial result and final audit instead of escaping as a client input error. Nine regressions cover post-apply failures and route status.

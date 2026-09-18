@@ -6,6 +6,7 @@ rows) so it's its own route to keep the overview tick fast.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.client import (
@@ -26,20 +27,26 @@ from src.collectors import (
 log = logging.getLogger(__name__)
 
 
-def build_network(client: OPNsenseClient) -> dict[str, Any]:
-    return {
-        "interfaces": collect_interfaces(client),
-        "gateways": collect_gateways(client),
-        "routes": collect_routes(client),
-        "arp": collect_arp(client),
-        "ndp": collect_ndp(client),
-    }
+def build_network(client: OPNsenseClient | None, *, client_factory=None) -> dict[str, Any]:
+    tasks = {"interfaces": collect_interfaces, "gateways": collect_gateways,
+             "routes": collect_routes, "arp": collect_arp, "ndp": collect_ndp}
+    if client_factory is None:
+        return {name: collect(client) for name, collect in tasks.items()}
+    # Independent GET collectors, bounded to five sessions. No shared cookie jar.
+    def collect_one(collect):
+        isolated = client_factory()
+        try:
+            return collect(isolated)
+        finally:
+            isolated.close()
+    with ThreadPoolExecutor(max_workers=len(tasks), thread_name_prefix="network") as pool:
+        futures = {name: pool.submit(collect_one, collect) for name, collect in tasks.items()}
+        return {name: future.result() for name, future in futures.items()}
 
 
 def build_network_payload(host: OPNsenseHost) -> tuple[int, dict[str, Any]]:
-    client = OPNsenseClient(host)
     try:
-        return 200, {"ok": True, "data": build_network(client)}
+        return 200, {"ok": True, "data": build_network(None, client_factory=lambda: OPNsenseClient(host))}
     except OPNsenseAuthError as e:
         return 401, {"ok": False, "error": "auth", "detail": str(e)}
     except OPNsenseTimeoutError as e:
